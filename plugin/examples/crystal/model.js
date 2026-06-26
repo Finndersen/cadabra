@@ -220,7 +220,7 @@ window.MODEL = {
   meta: { name:'Crystal sculpture + base', units:'mm', fabricationDefault:'cut-sheet' },
   MATERIALS,
   parts: [
-    { id:'crystal', name:'Crystal', engine:'analytic', fab:'cut-sheet', dependsOn:[],
+    { id:'crystal', name:'Crystal', engine:'direct', fab:'cut-sheet', dependsOn:[],
       render:{ styles:['acrylic','pla','clay','wire'], default:'acrylic' },
       exports:['stl','dxf','svg'],
       params:[
@@ -238,7 +238,7 @@ window.MODEL = {
       transform:(p,ctx)=>({ z: ctx.base ? ctx.base.seatZ : 0 }),
       estimate:(out,p,ctx)=>crystalEstimate(out,p) },
 
-    { id:'base', name:'Base (pedestal)', engine:'analytic', fab:'printed', dependsOn:['crystal'],
+    { id:'base', name:'Base (pedestal)', engine:'direct', fab:'printed', dependsOn:['crystal'],
       render:{ styles:['pla','clay','metal','wire'], default:'pla' },
       exports:['stl'],
       params:[

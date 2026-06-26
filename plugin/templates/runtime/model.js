@@ -37,11 +37,11 @@
    ─────────────────────────────────────────────────────────────────────────────
 
    build(params:Object, ctx:BuildCtx)
-     → { faces:Faces, ...published }                          engine:'analytic'
+     → { faces:Faces, ...published }                          engine:'direct'
      → Promise<{ geometry:BufferGeometry, edges:BufferGeometry,
                  volume:number, blobSTL:Blob, blobSTEP:Blob }> engine:'kernel'
 
-     analytic: published fields (e.g. vol, seatZ, section) are merged into
+     direct: published fields (e.g. vol, seatZ, section) are merged into
        ctx[partId] so later parts and estimate() can read them.
        Optional renderFaces/edgeFaces: thick-panel display (see examples/crystal).
      kernel:   fn passed to k.run() is serialised (fn.toString()) and eval'd in
@@ -68,11 +68,34 @@
      printed/kernel → whole-part solid mode.
 
    ─────────────────────────────────────────────────────────────────────────────
-   See examples/crystal/model.js  — analytic tier, multi-part (crystal + base)
+   See examples/crystal/model.js  — direct tier, multi-part (crystal + base)
        examples/phone_case/model.js — kernel tier, fillet + shell + boolean
    ============================================================================ */
 (function () {
 "use strict";
+
+/* ── geometry helpers ────────────────────────────────────────────────────────────
+   Pure functions for flat-panel and direct-geometry parts.                       */
+function cross3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function dot3(a,b)  { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+function sub3(a,b)  { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+function norm3(v)   { const l=Math.sqrt(dot3(v,v)); return l<1e-12?[0,0,1]:[v[0]/l,v[1]/l,v[2]/l]; }
+// Project 3D polygon onto its own plane → [[x,y],...] (for DXF export / area)
+function flattenFace(verts){ const A=verts[0], u=norm3(sub3(verts[1],A));
+  const n=norm3(cross3(u,sub3(verts[verts.length-1],A))), v=cross3(n,u);
+  return verts.map(p=>{ const d=sub3(p,A); return [dot3(d,u),dot3(d,v)]; }); }
+// 2D polygon area (shoelace)
+function poly2dArea(pts){ let s=0,n=pts.length; for(let i=0;i<n;i++){ const j=(i+1)%n; s+=pts[i][0]*pts[j][1]-pts[j][0]*pts[i][1]; } return Math.abs(s)/2; }
+// Extrude face outward by t → [front, back, ...side quads] for a thick-panel display
+function thickenFace(verts,t){ const nm=norm3(cross3(sub3(verts[1],verts[0]),sub3(verts[verts.length-1],verts[0])));
+  const o=verts.map(v=>[v[0]+nm[0]*t,v[1]+nm[1]*t,v[2]+nm[2]*t]);
+  const N=verts.length, s=[[...o],[...verts].reverse()];
+  for(let i=0;i<N;i++){ const j=(i+1)%N; s.push([verts[i],verts[j],o[j],o[i]]); } return s; }
+// Regular N-gon ring at radius R, height Z
+function nGonRing(R,Z,N=6){ return Array.from({length:N},(_,i)=>{ const a=i*2*Math.PI/N; return [R*Math.cos(a),R*Math.sin(a),Z]; }); }
+// Quad faces connecting two coplanar vertex rings (same N, corresponding indices)
+function ringFaces(bot,top){ return bot.map((_,i)=>{ const j=(i+1)%bot.length; return [bot[i],bot[j],top[j],top[i]]; }); }
+/* ─────────────────────────────────────────────────────────────────────────────── */
 
 /* ---- fabrication profiles (densities g/cm³, price $/kg). Edit per project. ---- */
 const MATERIALS = {
@@ -122,7 +145,7 @@ window.MODEL = {
     {
       id:        "part",
       name:      "Example box",
-      engine:    "analytic",   // 'analytic' | 'kernel'
+      engine:    "direct",      // 'direct' | 'kernel'  ('analytic' accepted as alias for 'direct')
       fab:       "printed",    // 'printed' | 'cut-sheet' | 'milled' | 'carpentry'
       dependsOn: [],
       render:    { styles: ["pla", "clay", "metal", "wire"], default: "pla" },

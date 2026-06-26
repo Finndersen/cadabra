@@ -323,7 +323,8 @@ function boot(libs){
 
   /* ============================================================ rebuild ======= */
   function buildCtx(){ return { printMat, MATERIALS }; }
-  let _rebuildSeq=0, _solveCount=0, _didFirstFit=false;
+  let _rebuildSeq=0, _solveCount=0, _didFirstFit=false, _debTimer;
+  const _paramHashes={}, _kernelOuts={};
   async function rebuild(){
     const myseq=++_rebuildSeq;
     const ctx=buildCtx(), outs={};
@@ -332,10 +333,19 @@ function boot(libs){
     if(hasKernel) setBadge('solving…');
     try{
       for(const part of orderedParts()){
+        if(part.engine==='kernel'){
+          const depState=(part.dependsOn||[]).map(id=>state[id]||{});
+          const h=JSON.stringify(state[part.id])+'|'+JSON.stringify(depState);
+          if(_paramHashes[part.id]===h && _kernelOuts[part.id]){
+            outs[part.id]=_kernelOuts[part.id]; ctx[part.id]=outs[part.id]; continue;
+          }
+          _paramHashes[part.id]=h;
+        }
         let out=part.build(state[part.id],ctx);
         if(out && typeof out.then==='function') out=await out;
         if(myseq!==_rebuildSeq) return;
         outs[part.id]=out; ctx[part.id]=out;
+        if(part.engine==='kernel') _kernelOuts[part.id]=out;
       }
     }catch(err){
       console.error('build failed:',err); setBadge('build error — see console'); return;
@@ -391,9 +401,9 @@ function boot(libs){
     num.step=d.step; if(d.hardMin!=null) num.min=d.hardMin; if(d.hardMax!=null) num.max=d.hardMax;
     const set=v=>{ state[partId][d.key]=v; rng.value=Math.min(d.max,Math.max(d.min,v)); num.value=fmtVal(v,d.step); };
     set(state[partId][d.key]);
-    rng.addEventListener('input',()=>{ set(parseFloat(rng.value)); rebuild(); });
+    rng.addEventListener('input',()=>{ set(parseFloat(rng.value)); clearTimeout(_debTimer); _debTimer=setTimeout(rebuild,200); });
     num.addEventListener('input',()=>{ const v=parseFloat(num.value); if(!isNaN(v)){ state[partId][d.key]=v;
-      rng.value=Math.min(d.max,Math.max(d.min,v)); rebuild(); } });
+      rng.value=Math.min(d.max,Math.max(d.min,v)); clearTimeout(_debTimer); _debTimer=setTimeout(rebuild,200); } });
     return row;
   }
   function makeChoice(partId,d){
@@ -751,8 +761,9 @@ function boot(libs){
   document.getElementById('printMat').value=printMat;
   document.getElementById('explode').value=explode; document.getElementById('vEx').textContent=Math.round(explode);
   buildPartCards(); resize(); fitCamera(); frame();
+  if(SCHEMA.some(p=>p.engine==='kernel')) window.CADABRA_KERNEL.ready().catch(()=>{});
   rebuild();
 }
 
-window.CADABRA = { boot, version: "0.3.0" };
+window.CADABRA = { boot, version: "0.4.0" };
 })();

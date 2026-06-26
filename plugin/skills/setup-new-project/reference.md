@@ -62,7 +62,7 @@ window.MODEL = {
 {
   id:        string,
   name:      string,
-  engine:    'analytic' | 'kernel',
+  engine:    'direct' | 'kernel',   // 'analytic' accepted as a legacy alias for 'direct'
   fab:       'printed' | 'cut-sheet' | 'milled' | 'carpentry',
   dependsOn: string[],   // ids of parts that must build before this one
   render:    { styles:string[], default:string },
@@ -70,7 +70,7 @@ window.MODEL = {
   params:    (RangeParam | ChoiceParam)[],
 
   build(params:Object, ctx:BuildCtx)
-    → { faces:Faces, ...published }                          // engine:'analytic'
+    → { faces:Faces, ...published }                          // engine:'direct'
     → Promise<{ geometry:BufferGeometry, edges:BufferGeometry,
                 volume:number, blobSTL:Blob, blobSTEP:Blob }> // engine:'kernel'
 
@@ -111,20 +111,45 @@ exportPieces(out, p, ctx) {
   // The faces array is already one face per panel; sig3d auto-groups them.
   // Return null to use the runtime's auto-grouping with "Panel A/B/C" labels.
   // Or return a spec with meaningful labels:
-  return null;   // auto is fine for most analytic parts
+  return null;   // auto is fine for most direct parts
 }
 ```
+
+### faceIndices stride pattern
+
+When faces are pushed in a loop with multiple types per iteration (e.g.
+`faces.push(shaft, shoulder, tip)` inside a `for` loop), the array is interleaved
+with stride = number of types pushed per iteration. Build `faceIndices` accordingly:
+
+```js
+// stride = 3 (shaft/shoulder/tip per iteration, N=6 iterations)
+const STRIDE = 3;
+const groups = [
+  { start:0, qty:6, label:'Shaft Panel'    },  // indices 0,3,6,9,12,15
+  { start:1, qty:6, label:'Shoulder Panel' },  // indices 1,4,7,10,13,16
+  { start:2, qty:6, label:'Tip Panel'      },  // indices 2,5,8,11,14,17
+];
+faceIndices: Array.from({length: g.qty}, (_, k) => g.start + k * STRIDE)
+```
+
+**Silent bug risk:** wrong `faceIndices` produces no error — all panels just show
+the same dimensions. After writing `exportPieces`, verify that dims differ between
+groups before committing.
 
 Clicking a piece card in the Export tab **highlights** the corresponding faces in
 the 3D view (yellow overlay), making it easy to identify which physical panel
 corresponds to each shape group.
 
-## build() — analytic tier
+## build() — direct tier
 
 Return `{ faces, ...published }`. `faces` is an array of 3D polygons, each a list
 of `[x,y,z]` points wound so the normal points OUTWARD. Published fields (e.g.
 `vol`, `footprint`, `seatZ`, `section`, `bottom`) are merged into `ctx[id]` for
 later parts and read by `estimate()` and the agent report.
+
+`exports:['stl']` works on any direct-engine part — the runtime triangulates
+`out.faces` into ASCII STL automatically. Only use kernel for STEP export,
+watertight guarantee, or non-prismatic B-rep geometry.
 
 ```js
 function buildBox(p) {

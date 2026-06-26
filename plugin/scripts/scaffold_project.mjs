@@ -18,12 +18,13 @@
             are never clobbered unless empty/missing — they hold agent + design
             work and persist across sessions).
    ============================================================================ */
-import { mkdirSync, copyFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { mkdirSync, copyFileSync, writeFileSync, existsSync, statSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const RUNTIME_DIR = resolve(join(__dirname, "..", "templates", "runtime"));
+const PLUGIN_ROOT = resolve(join(__dirname, ".."));
+const RUNTIME_DIR = join(PLUGIN_ROOT, "templates", "runtime");
 
 const RUNTIME_FILES = ["index.html", "runtime.js", "theme.css", "kernel.js"];
 
@@ -58,6 +59,23 @@ export function scaffold(spec) {
     written.push("PROJECT.md");
   }
 
+  // README.md — user-facing: how to open and use the app. Links to PROJECT.md.
+  // Never clobber — the user may have customised it.
+  const readmeDest = join(dir, "README.md");
+  if (!existsSync(readmeDest)) {
+    writeFileSync(readmeDest, readmeMd(name));
+    written.push("README.md");
+  }
+
+  // CLAUDE.md — session guide for agents working in this project directory.
+  // Never clobber — the agent may have customised it.
+  const claudeDest = join(dir, "CLAUDE.md");
+  if (!existsSync(claudeDest)) {
+    const runtimeVersion = extractRuntimeVersion();
+    writeFileSync(claudeDest, claudeMd(name, runtimeVersion, PLUGIN_ROOT));
+    written.push("CLAUDE.md");
+  }
+
   // config/default.json — empty named-preset container
   const cfgDest = join(dir, "config", "default.json");
   if (!existsSync(cfgDest) || force) {
@@ -67,6 +85,70 @@ export function scaffold(spec) {
   }
 
   return { dir, written };
+}
+
+function extractRuntimeVersion() {
+  try {
+    const src = readFileSync(join(RUNTIME_DIR, "runtime.js"), "utf8");
+    const m = src.match(/window\.CADABRA\s*=\s*\{[^}]*version:\s*"([^"]+)"/);
+    return m ? m[1] : "unknown";
+  } catch { return "unknown"; }
+}
+
+function claudeMd(name, runtimeVersion, pluginRoot) {
+  return `# ${name} — Cadabra project
+
+This is a **Cadabra** parametric CAD project. The user opens \`index.html\` in a
+browser (no server needed) and interacts with sliders; you interact with the
+project by editing files and using the agent hook and scripts below.
+
+- \`model.js\` — the parametric geometry. **The file you edit in the common case.**
+- \`PROJECT.md\` — the living design document. Read it first every session.
+- \`runtime.js\`, \`index.html\`, \`theme.css\`, \`kernel.js\` — the Cadabra engine
+  (project-owned copies — see "Custom runtime changes" below).
+
+## Every session: start here
+
+1. Read \`PROJECT.md\` — design intent, constraints, decisions, open questions.
+2. Read \`model.js\` — understand the current geometry and parameters.
+3. Check the runtime version:
+   \`\`\`
+   node ${pluginRoot}/scripts/upgrade_runtime.mjs --dir . --check
+   \`\`\`
+   - **Exit 0:** runtime is current — proceed with your work.
+   - **Exit 1:** a newer runtime is available. Tell the user what changed
+     (the script prints the changelog) and ask if they want to update. If yes,
+     activate the **\`update-project\`** skill to apply it.
+
+## Making changes
+
+- **Geometry / parameters** — edit \`model.js\`, then tell the user to click
+  **Reload** in the browser to apply.
+- **Fabrication format** — update \`fab\`, \`exports\`, \`engine\` in \`model.js\`;
+  note the decision in \`PROJECT.md\`.
+- **Dimensional inspection** — use the agent hook in the browser console:
+  \`window.__app.report()\` returns bbox, volume, cavity dims, and published values
+  per part. \`window.__app.getState()\` returns current slider values.
+- **Screenshots** — capture a render for visual review:
+  \`\`\`
+  node ${pluginRoot}/scripts/screenshot.mjs --html ./index.html --out shot.png [--view iso|front|top]
+  \`\`\`
+- **Verification** — confirm the app boots and the agent hook is intact:
+  \`\`\`
+  node ${pluginRoot}/scripts/verify.mjs ./index.html
+  \`\`\`
+
+## Custom runtime changes
+
+\`runtime.js\`, \`index.html\`, and \`theme.css\` are **project-owned copies** — you
+can edit them directly if the user needs something the standard framework does not
+support: a custom UI control, a new export format, a bespoke rendering mode, extra
+sidebar content, etc. Treat them as ordinary code files. The only invariant: keep
+\`window.__app\` (especially \`screenshot()\`) intact — it is the agent's eyes on
+the live model. After any runtime edit, re-run \`verify.mjs\` to confirm.
+
+<!-- cadabra-runtime-version: ${runtimeVersion} -->
+`;
 }
 
 function projectMd(name, fab) {
@@ -101,14 +183,15 @@ _Faceted vs smooth · rounded vs sharp · finish · palette._
 
 ## 6. Geometry / engine decisions (model.js)
 - **Tier per part** — Cadabra has TWO first-class engines; pick per part:
-  - **analytic** — flat-panel / sheet-cut parts (laser/CNC acrylic, ply): exact
-    planar faces, instant, zero-dependency, clean DXF/SVG nesting. Plain JS vertex
-    math. Also fine for simple prisms where instant + dependency-free matters.
-  - **kernel** (replicad / OpenCASCADE WASM) — anything needing curved B-rep
-    features: fillets, chamfers, shells/hollows, booleans, lofts/sweeps, STEP
-    export, or a watertight guarantee. Runs in a Blob-URL Web Worker from CDN libs
-    + CDN wasm (no server, works from file://); lazy-loads only when used. See the
-    \`phone_case\` example for a fillet + shell + boolean part.
+  - **direct** — flat-panel / sheet-cut (laser/CNC acrylic, ply) and simple printed
+    shapes (prisms, cylinders, boxes with recesses): exact planar faces, instant,
+    zero-dependency, clean DXF/SVG nesting, STL via triangulation. Try this first
+    for any printed part. (\`engine:'analytic'\` is a legacy alias.)
+  - **kernel** (replicad / OpenCASCADE WASM) — curved B-rep features: fillets,
+    chamfers, shells/hollows, booleans, lofts/sweeps, STEP export, watertight
+    solids. Runs in a Blob-URL Web Worker from CDN (no server, works from
+    file://); lazy-loads only when used. First-visit cost: 3–9s CDN load. See
+    the \`phone_case\` example for a fillet + shell + boolean part.
   - _Decision for this project:_ …
 - **Parts & dependencies:** _…_
 - **Key parameters and their ranges:** _…_
@@ -122,14 +205,28 @@ _Date — decision — why. Keep this so a future session understands the "why".
 
 ---
 
-## Working with this project
-- **Open it:** double-click \`index.html\` (opens via \`file://\` — no server needed).
-- **Iterate:** edit \`model.js\`, then click the **Reload** button in the app.
-- **Tweak live:** drag the sliders; no agent involvement needed for dimensional changes.
-- **Export:** per-part STL / DXF / SVG buttons; configs save/load as JSON.
-- **Agent screenshot:** \`node <plugin>/scripts/screenshot.mjs --html ./index.html --out shot.png\`
-  (occasional — the agent usually reasons from the model.js code itself).
-- _Optional fallback if a browser ever blocks file://:_ \`npx serve .\` then open the URL.
+_See [README.md](README.md) for how to open and use the app._
+`;
+}
+
+function readmeMd(name) {
+  return `# ${name}
+
+A parametric CAD project built with [Cadabra](https://github.com/finndersen/cadabra).
+Open the live 3D viewer by double-clicking **\`index.html\`** — no server needed.
+
+## Use
+
+- Drag the **sliders** in the sidebar to adjust dimensions in real time.
+- After the agent edits \`model.js\`, click **Reload** in the app to apply changes.
+- Switch to the **Export tab** to download STL / DXF / SVG / STEP files for fabrication.
+- **Save config / Load config** to store and restore named design presets.
+- _If a browser ever blocks \`file://\` access:_ run \`npx serve .\` and open the URL.
+
+## Design specifications
+
+See [PROJECT.md](PROJECT.md) for the full design intent, dimensions, fabrication
+requirements, and decision log.
 `;
 }
 
