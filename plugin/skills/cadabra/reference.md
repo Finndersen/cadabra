@@ -78,8 +78,46 @@ window.MODEL = {
 
   estimate(out:buildOut, params:Object, ctx:BuildCtx)
     → { cost:number, rows:[[label:string, value:string|number], ...] }
+
+  // OPTIONAL — drives the Export tab. If absent/null, auto-derived from fab type.
+  exportPieces?(out:buildOut, params:Object, ctx:BuildCtx)
+    → { mode:'sheet',
+        pieces:[{ id:string, label:string, pts2d:[x,y][], qty:number,
+                  dims:{w,h}, faceIndices?:number[] }] }
+    | { mode:'solid',  pieces:[{ id, label, qty }] }
+    | { mode:'board-list',
+        pieces:[{ id, label, length, width, thickness, qty, grain?:string }] }
+    | null
 }
 ```
+
+### exportPieces() — the Export tab
+
+The Export tab (Design/Export toggle) shows fab-appropriate previews and download
+buttons per part. It derives sub-pieces automatically from `out.faces` + `part.fab`
+if `exportPieces` is absent or returns null:
+
+- **`cut-sheet` / `milled`** → auto sig3d panel groups from `out.faces` (one group
+  per unique shape, labelled A/B/C…). Each group shows a 2D polygon preview, qty,
+  dimensions, a per-piece DXF button, and batch ZIP + SVG nesting actions.
+- **`printed` / kernel** → whole-part solid mode: estimate rows + STL/STEP buttons.
+- **`carpentry`** → treated as cut-sheet for now (board-list is future work).
+
+Define `exportPieces()` when you want semantic labels, custom grouping that differs
+from edge-signature matching, or a board-list for carpentry. Example (crystal):
+
+```js
+exportPieces(out, p, ctx) {
+  // The faces array is already one face per panel; sig3d auto-groups them.
+  // Return null to use the runtime's auto-grouping with "Panel A/B/C" labels.
+  // Or return a spec with meaningful labels:
+  return null;   // auto is fine for most analytic parts
+}
+```
+
+Clicking a piece card in the Export tab **highlights** the corresponding faces in
+the 3D view (yellow overlay), making it easy to identify which physical panel
+corresponds to each shape group.
 
 ## build() — analytic tier
 

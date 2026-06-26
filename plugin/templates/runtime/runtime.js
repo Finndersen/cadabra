@@ -6,16 +6,14 @@
    the CDN and calls CADABRA.boot({THREE, OrbitControls, RoomEnvironment}).
 
    Reads window.MODEL (from model.js, also a classic script) and: builds the
-   part-card accordion, the dependency-ordered build pipeline, three.js rendering
-   with custom orbit navigation, per-part estimates + the assembly mixed-BOM,
-   exports (STL/DXF/SVG), config save/load (+ legacy import), localStorage, the
-   Reload button, and the window.__app agent hook.
+   part-card accordion (Design tab), the dependency-ordered build pipeline,
+   three.js rendering with custom orbit navigation, per-part estimates + the
+   assembly mixed-BOM, an Export tab (per-part panel previews, fab-typed export
+   actions), config save/load (+ legacy import), localStorage, the Reload button,
+   and the window.__app agent hook.
 
    THE ONE INVARIANT through any customisation: keep window.__app (esp.
    screenshot()) intact, so the agent keeps its "eyes".
-
-   Extracted from kernel_poc.html; behaviour preserved verbatim (camera nav,
-   panel thickness, base collar+skirt, fabrication-aware estimates).
    ============================================================================ */
 (function () {
 "use strict";
@@ -260,13 +258,11 @@ function boot(libs){
   const lineMat=new THREE.LineBasicMaterial({color:0x9af0f5});
   const baseLineMat=new THREE.LineBasicMaterial({color:0x2c353f});
 
-  let lastOuts={};
+  let lastOuts={}, lastExportSpecs={}, _hlMesh=null;
+
   function renderPartMesh(part,out){
     const g=partGroups[part.id];
     while(g.children.length){ const c=g.children.pop(); if(c.geometry) c.geometry.dispose(); }
-    // KERNEL note: a kernel part returns { geometry, edges } BufferGeometries (via
-    // replicad-threejs-helper syncGeometries from the worker). If present, render those
-    // directly; otherwise fall through to the analytic face path.
     if(out.geometry){
       const mesh=new THREE.Mesh(out.geometry, MATS[view.styles[part.id]]);
       g.add(mesh); partMeshes[part.id]=mesh;
@@ -298,8 +294,6 @@ function boot(libs){
       if(edges) edges.visible = view.styles[part.id]!=='wire';
     }
   }
-  // Iterate every world-space vertex of a part output, whether analytic (out.faces:
-  // arrays of 3D polygons) or kernel (out.geometry: a THREE BufferGeometry).
   function eachVertex(out, dz, cb){
     if(out.faces && out.faces.length){
       for(const f of out.faces) for(const v of f) cb(v[0], v[1], v[2]+dz);
@@ -330,9 +324,6 @@ function boot(libs){
   /* ============================================================ rebuild ======= */
   function buildCtx(){ return { printMat, MATERIALS }; }
   let _rebuildSeq=0, _solveCount=0, _didFirstFit=false;
-  // Builds may be async (kernel-tier parts return a Promise from the replicad
-  // worker). rebuild() awaits every build before rendering; analytic parts
-  // resolve instantly. A sequence guard drops stale rebuilds (rapid slider drags).
   async function rebuild(){
     const myseq=++_rebuildSeq;
     const ctx=buildCtx(), outs={};
@@ -342,26 +333,28 @@ function boot(libs){
     try{
       for(const part of orderedParts()){
         let out=part.build(state[part.id],ctx);
-        if(out && typeof out.then==='function') out=await out;   // kernel parts are async
-        if(myseq!==_rebuildSeq) return;                          // superseded by a newer rebuild
+        if(out && typeof out.then==='function') out=await out;
+        if(myseq!==_rebuildSeq) return;
         outs[part.id]=out; ctx[part.id]=out;
       }
     }catch(err){
       console.error('build failed:',err); setBadge('build error — see console'); return;
     }
     if(myseq!==_rebuildSeq) return;
+    clearHighlight();
     lastOuts=outs;
+    // Derive export specs while ctx still has all parts' outputs.
+    lastExportSpecs={};
+    for(const part of SCHEMA){
+      if(outs[part.id]) lastExportSpecs[part.id]=deriveExportSpec(part,outs[part.id],state[part.id],ctx);
+    }
     for(let i=0;i<SCHEMA.length;i++){ const part=SCHEMA[i];
       const tz=part.transform?part.transform(state[part.id],ctx).z:0;
-      const exOff=(SCHEMA.length-1-i)*explode;        // lift dependents up on explode
+      const exOff=(SCHEMA.length-1-i)*explode;
       partGroups[part.id].position.z=tz+exOff;
       renderPartMesh(part,outs[part.id]); }
-    applyVisAndStyle(); recenter(); updateEstimates(outs); saveState();
+    applyVisAndStyle(); recenter(); updateEstimates(outs); buildExportPanel(); saveState();
     setBadge();
-    // Kernel parts resolve asynchronously, so the very first build may complete
-    // AFTER the initial fitCamera(). Refit once on the first real solve so the
-    // part isn't framed against an empty scene. Also expose a solve counter +
-    // ready flag so headless drivers can wait for the geometry to actually land.
     if(!_didFirstFit){ _didFirstFit=true; fitCamera(); }
     _solveCount++;
     if(window.__app){ window.__app.solveCount=_solveCount; window.__app.solving=false; }
@@ -374,7 +367,6 @@ function boot(libs){
       const box=document.getElementById('est_'+part.id);
       if(box) box.innerHTML=e.rows.map(r=>`<div class="row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
       totalCost+=e.cost||0; costRows.push(`${part.name} $${(e.cost||0).toFixed(2)}`); }
-    // assembly roll-up: overall height = top of the tallest visible part + its placement
     let h=0;
     for(const part of SCHEMA){ const out=outs[part.id]; if(!out) continue;
       const dz=part.transform?part.transform(state[part.id],ctx).z:0;
@@ -387,7 +379,7 @@ function boot(libs){
     document.getElementById('aCost').title=costRows.join('  ·  ');
   }
 
-  /* ============================================================ UI build ====== */
+  /* ============================================================ design tab UI == */
   const decimals=step=>{ const s=String(step); return s.includes('.')?s.split('.')[1].length:0; };
   const fmtVal=(v,step)=>Number(v).toFixed(decimals(step));
   function makeRange(partId,d){
@@ -446,11 +438,6 @@ function boot(libs){
       body.appendChild(sr);
       // per-part estimate
       const est=document.createElement('div'); est.className='pest'; est.id='est_'+part.id; body.appendChild(est);
-      // exports
-      if(part.exports&&part.exports.length){ const ex=document.createElement('div'); ex.className='exp';
-        for(const fmt of part.exports){ const b=document.createElement('button'); b.textContent=fmt.toUpperCase();
-          b.addEventListener('click',()=>doExport(part,fmt)); ex.appendChild(b); }
-        body.appendChild(ex); }
 
       head.addEventListener('click',e=>{ if(e.target.closest('.vis')||e.target.closest('.solo')) return;
         if(e.target.closest('.col')){ view.collapsed[part.id]=!view.collapsed[part.id];
@@ -467,10 +454,150 @@ function boot(libs){
     }
   }
 
-  /* ============================================================ exports ======= */
+  /* ============================================================ export tab ====== */
+  // Derive a structured export spec for a part from its build output.
+  // Calls part.exportPieces() if defined; falls back to fab-typed auto-derivation.
+  function deriveExportSpec(part, out, params, ctx){
+    if(typeof part.exportPieces==='function'){
+      const spec=part.exportPieces(out,params,ctx);
+      if(spec) return spec;
+    }
+    const fab=part.fab;
+    if((fab==='cut-sheet'||fab==='milled') && out.faces && out.faces.length){
+      const faces=out.faces, map=edgeMapper(faces), groupMap={}; let gi=0;
+      faces.forEach((f,fi)=>{
+        const s=sig3d(f,map);
+        if(!(s in groupMap)){
+          const pts2d=flatten(f);
+          const w=Math.max(...pts2d.map(p=>p[0])), h=Math.max(...pts2d.map(p=>p[1]));
+          const lbl=String.fromCharCode(65+gi++);
+          groupMap[s]={ id:'P'+lbl, label:'Panel '+lbl, pts2d, dims:{w:Math.round(w),h:Math.round(h)}, qty:0, faceIndices:[] };
+        }
+        groupMap[s].qty++; groupMap[s].faceIndices.push(fi);
+      });
+      return { mode:'sheet', pieces:Object.values(groupMap) };
+    }
+    // solid (printed / kernel / milled-solid / carpentry): whole part, no sub-pieces
+    return { mode:'solid', pieces:[{ id:part.id, label:part.name, qty:1 }] };
+  }
+
+  // Tiny inline SVG preview of a flattened panel shape.
+  function pieceSVG(pts2d, sz){
+    const w=Math.max(...pts2d.map(p=>p[0]))||1, h=Math.max(...pts2d.map(p=>p[1]))||1;
+    const sc=Math.min((sz-8)/w,(sz-8)/h);
+    const tx=(sz-w*sc)/2, ty=(sz-h*sc)/2;
+    const pts=pts2d.map(p=>`${(p[0]*sc+tx).toFixed(1)},${((h-p[1])*sc+ty).toFixed(1)}`).join(' ');
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"><polygon points="${pts}" fill="rgba(57,208,216,.12)" stroke="#39d0d8" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+  }
+
+  // Highlight a set of faces in the 3D view by adding a temporary overlay mesh.
+  function highlightFaces(partId, faceIndices){
+    clearHighlight();
+    const out=lastOuts[partId]; if(!out||!out.faces||!faceIndices||!faceIndices.length) return;
+    const faces=faceIndices.map(i=>out.faces[i]);
+    const verts=[]; for(const t of triangulate(faces)) for(const v of t) verts.push(v[0],v[1],v[2]);
+    if(!verts.length) return;
+    const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+    _hlMesh=new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:0xffe666,transparent:true,opacity:0.72,depthTest:false,side:THREE.DoubleSide}));
+    _hlMesh.name='_hl'; _hlMesh.renderOrder=1;
+    partGroups[partId].add(_hlMesh);
+  }
+  function clearHighlight(){
+    if(_hlMesh){ _hlMesh.parent&&_hlMesh.parent.remove(_hlMesh); if(_hlMesh.geometry) _hlMesh.geometry.dispose(); _hlMesh=null; }
+  }
+
+  // Build (or rebuild) the Export tab content from current lastOuts + lastExportSpecs.
+  function buildExportPanel(){
+    const host=document.getElementById('export'); if(!host) return;
+    host.innerHTML='';
+    const ctx=buildCtx(); for(const part of SCHEMA) if(lastOuts[part.id]) ctx[part.id]=lastOuts[part.id];
+    let hasAny=false;
+    for(const part of SCHEMA){
+      if(!part.exports||!part.exports.length) continue;
+      const out=lastOuts[part.id]; if(!out) continue;
+      hasAny=true;
+      const spec=lastExportSpecs[part.id]||{ mode:'solid', pieces:[] };
+      const e=part.estimate(out,state[part.id],ctx);
+
+      const sec=document.createElement('div'); sec.className='exp-section';
+
+      // section header
+      const head=document.createElement('div'); head.className='exp-sec-h';
+      let sumHtml='';
+      if(spec.mode==='sheet'){
+        const totalQty=spec.pieces.reduce((a,p)=>a+p.qty,0);
+        const areaRow=e.rows.find(r=>String(r[0]).toLowerCase().includes('area'));
+        const costRow=e.rows.find(r=>String(r[0]).toLowerCase().includes('cost')||String(r[0]).toLowerCase().includes('est'));
+        const parts=[totalQty+' panels', areaRow?areaRow[1]:null, costRow?String(costRow[1]):('$'+(e.cost||0).toFixed(2))].filter(Boolean);
+        sumHtml=`<span class="exp-sum">${parts.join(' · ')}</span>`;
+      }
+      head.innerHTML=`<span class="nm">${part.name}</span><span class="fab">${part.fab}</span><span class="sp"></span>${sumHtml}`;
+      sec.appendChild(head);
+
+      const body=document.createElement('div'); body.className='exp-sec-b';
+
+      if(spec.mode==='sheet'){
+        // piece-type grid
+        const piecesEl=document.createElement('div'); piecesEl.className='exp-pieces';
+        for(const piece of spec.pieces){
+          const card=document.createElement('div'); card.className='piece-card';
+          card.dataset.part=part.id; card.dataset.piece=piece.id;
+          const svgEl=document.createElement('div'); svgEl.className='piece-svg';
+          if(piece.pts2d) svgEl.innerHTML=pieceSVG(piece.pts2d,60);
+          const info=document.createElement('div'); info.className='piece-info';
+          const dimsStr=piece.dims?piece.dims.w+' × '+piece.dims.h+' mm':'';
+          info.innerHTML=`<div class="piece-label">${piece.label||piece.id}</div><div class="piece-qty">×${piece.qty}</div><div class="piece-dims">${dimsStr}</div>`;
+          if(piece.pts2d && part.exports.includes('dxf')){
+            const btn=document.createElement('button'); btn.textContent='DXF';
+            btn.addEventListener('click',ev=>{ ev.stopPropagation(); exportPiece(part,piece); });
+            info.appendChild(btn);
+          }
+          card.appendChild(svgEl); card.appendChild(info);
+          // click = highlight faces in 3D view
+          if(piece.faceIndices){
+            card.addEventListener('click',()=>{
+              const nowActive=!card.classList.contains('active');
+              piecesEl.querySelectorAll('.piece-card').forEach(c=>c.classList.remove('active'));
+              if(nowActive){ card.classList.add('active'); highlightFaces(part.id,piece.faceIndices); }
+              else clearHighlight();
+            });
+          }
+          piecesEl.appendChild(card);
+        }
+        body.appendChild(piecesEl);
+        // batch actions
+        const actions=document.createElement('div'); actions.className='exp-actions';
+        if(part.exports.includes('dxf')){ const b=document.createElement('button'); b.textContent='Export all (ZIP of DXFs)'; b.addEventListener('click',()=>doExport(part,'dxf')); actions.appendChild(b); }
+        if(part.exports.includes('svg')){ const b=document.createElement('button'); b.textContent='Nesting layout (SVG)'; b.addEventListener('click',()=>doExport(part,'svg')); actions.appendChild(b); }
+        if(part.exports.includes('stl')){ const b=document.createElement('button'); b.textContent='Export STL'; b.addEventListener('click',()=>doExport(part,'stl')); actions.appendChild(b); }
+        body.appendChild(actions);
+      } else {
+        // solid / board-list: estimate rows + export buttons
+        const solidDiv=document.createElement('div'); solidDiv.className='exp-solid';
+        solidDiv.innerHTML=e.rows.map(r=>`<div class="row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
+        body.appendChild(solidDiv);
+        const actions=document.createElement('div'); actions.className='exp-actions';
+        for(const fmt of part.exports){
+          const b=document.createElement('button'); b.textContent=fmt.toUpperCase();
+          b.addEventListener('click',()=>doExport(part,fmt)); actions.appendChild(b);
+        }
+        body.appendChild(actions);
+      }
+
+      sec.appendChild(body); host.appendChild(sec);
+    }
+    if(!hasAny) host.innerHTML='<div class="exp-empty">No exports defined. Add <code>exports:[\'stl\',\'dxf\',...]</code> to a part in model.js.</div>';
+  }
+
+  // Export a single piece type as its own DXF.
+  function exportPiece(part, piece){
+    if(!piece.pts2d) return;
+    dl(`${part.id}_${piece.id}.dxf`, new TextEncoder().encode(panelDXF(piece.pts2d, piece.id)));
+  }
+
+  /* ============================================================ doExport ======= */
   function doExport(part,fmt){
     const out=lastOuts[part.id];
-    // kernel parts publish blob exporters (e.g. out.blobSTL / out.blobSTEP). Prefer them.
     if(fmt==='step' && out.blobSTEP){ dl(part.id+'.step', out.blobSTEP()); return; }
     if(fmt==='stl' && out.blobSTL){ dl(part.id+'.stl', out.blobSTL()); return; }
     if(fmt==='stl'){ dl(part.id+'.stl', facesToSTL(out.faces, part.id)); return; }
@@ -520,7 +647,7 @@ function boot(libs){
     dl('assembly_design.json', JSON.stringify(out,null,2), 'application/json');
   }
   function importConfig(obj){
-    if(obj.state){                                   // native cadabra format
+    if(obj.state){
       for(const part of SCHEMA){ if(obj.state[part.id]) Object.assign(state[part.id], filterKeys(part,obj.state[part.id])); }
       if(obj.view){ Object.assign(view.vis,obj.view.vis||{}); Object.assign(view.styles,obj.view.styles||{}); }
       if(obj.printMat) printMat=obj.printMat; if(typeof obj.explode==='number') explode=obj.explode;
@@ -529,7 +656,7 @@ function boot(libs){
       if(obj.b && state.base)    Object.assign(state.base,    filterKeys(SCHEMA[1]||SCHEMA[0],obj.b));
       if(obj.v){ if('showCrystal' in obj.v) view.vis.crystal=!!obj.v.showCrystal;
                  if('showBase'    in obj.v) view.vis.base   =!!obj.v.showBase; }
-    } else { Object.assign(state[SCHEMA[0].id], filterKeys(SCHEMA[0],obj)); }   // bare params for part 0
+    } else { Object.assign(state[SCHEMA[0].id], filterKeys(SCHEMA[0],obj)); }
     refreshAfterLoad();
   }
   document.getElementById('cfgSave').addEventListener('click',exportConfig);
@@ -550,12 +677,24 @@ function boot(libs){
     document.getElementById('printMat').value='pla'; document.getElementById('explode').value=0;
     document.getElementById('vEx').textContent='0';
     buildPartCards(); rebuild(); fitCamera(); });
-  // Reload button — the file:// iteration loop: edit model.js → click Reload.
   const reloadBtn=document.getElementById('reload');
   if(reloadBtn) reloadBtn.addEventListener('click',()=>location.reload());
 
+  // Design / Export tab toggle
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab=btn.dataset.tab;
+      const partsEl=document.getElementById('parts'), exportEl=document.getElementById('export');
+      if(partsEl) partsEl.hidden=(tab!=='design');
+      if(exportEl) exportEl.hidden=(tab!=='export');
+      if(tab==='export') buildExportPanel();   // refresh in case outs changed while hidden
+      if(tab==='design') clearHighlight();     // clear panel highlights when leaving export tab
+    });
+  });
+
   /* ============================================================ agent hook ==== */
-  /* MUST survive any customisation — the agent's "eyes & hands" on the live model. */
   function bboxOf(out, dz){
     let lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity];
     eachVertex(out, dz||0, (x,y,z)=>{ const c=[x,y,z];
@@ -571,24 +710,19 @@ function boot(libs){
       const e=part.estimate(out,state[part.id],ctx);
       const published={}; for(const k of ['vol','volume','footprint','cavityW','cavityH','fits','seatZ','maxEdge','panelThk'])
         if(out[k]!=null) published[k]=out[k];
-      // triangle count for kernel parts (BufferGeometry), polygon count for analytic
       const triCount=out.geometry&&out.geometry.index?out.geometry.index.count/3:null;
       report.parts[part.id]={
         name:part.name, engine:part.engine, fab:part.fab,
-        faceCount:(out.faces||[]).length,
-        triangleCount:triCount,
-        bbox:bboxOf(out,dz),
-        placementZ:dz,
+        faceCount:(out.faces||[]).length, triangleCount:triCount,
+        bbox:bboxOf(out,dz), placementZ:dz,
         estimate:{ cost:e.cost, rows:e.rows },
         published,
       };
     }
     report.assembly={
-      parts:SCHEMA.length,
-      height:document.getElementById('aH').textContent,
+      parts:SCHEMA.length, height:document.getElementById('aH').textContent,
       footprint:document.getElementById('aFP').textContent,
-      bom:document.getElementById('aCost').textContent,
-      printMat,
+      bom:document.getElementById('aCost').textContent, printMat,
     };
     return report;
   }
@@ -599,13 +733,13 @@ function boot(libs){
     setVisible(partId,v){ view.vis[partId]=v; applyVisAndStyle(); recenter(); },
     setStyle(partId,s){ view.styles[partId]=s; applyVisAndStyle(); },
     setView(name){ if(VIEWS[name]) setView(VIEWS[name]); },
-    report(){ return geometryReport(); },                      // structured measurements for the agent
+    report(){ return geometryReport(); },
     parts(){ return SCHEMA.map(p=>({ id:p.id, name:p.name, fab:p.fab, exports:p.exports||[] })); },
     render(){ renderer.render(scene,camera); },
     screenshot(){ renderer.render(scene,camera); return renderer.domElement.toDataURL('image/png'); },
     ready:true,
-    solving:false,         // true while a (possibly async kernel) build is in flight
-    solveCount:0,          // increments each successful build — wait for >0 before screenshotting
+    solving:false,
+    solveCount:0,
   };
 
   /* ============================================================ run =========== */
@@ -617,9 +751,8 @@ function boot(libs){
   document.getElementById('printMat').value=printMat;
   document.getElementById('explode').value=explode; document.getElementById('vEx').textContent=Math.round(explode);
   buildPartCards(); resize(); fitCamera(); frame();
-  rebuild();   // async; refits the camera itself on the first solve (kernel parts resolve later)
+  rebuild();
 }
 
-/* Expose the engine. index.html calls CADABRA.boot(libs) once three.js has loaded. */
-window.CADABRA = { boot, version: "0.2.0" };
+window.CADABRA = { boot, version: "0.3.0" };
 })();

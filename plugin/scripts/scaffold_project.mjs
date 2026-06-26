@@ -88,6 +88,8 @@ Note where reference files live (e.g. exports/refs/), and key takeaways._
 - **Default process:** ${fab}
 - _Per-part process (3D print FDM/resin · laser/CNC sheet · milling · carpentry):_
 - _Material(s) — density (g/cm³), price ($/kg or sheet), min wall / kerf / clearance:_
+- _Export needs — file formats required (DXF per panel shape? SVG nesting? STL per segment? STEP?):_
+- _Sheet / print-bed size constraints (largest panel that fits, bed dimensions):_
 
 ## 4. Dimensions & hard constraints
 _Size envelope · print-bed / sheet / stock limits · fit to an existing object

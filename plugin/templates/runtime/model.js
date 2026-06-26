@@ -55,6 +55,18 @@
      → { cost:number, rows:[[label:string, value:string|number], ...] }
      out is the object returned by build(). cost feeds the assembly BOM total.
 
+   exportPieces?(out:buildOut, params:Object, ctx:BuildCtx)        OPTIONAL
+     → { mode:'sheet',
+         pieces:[{ id, label, pts2d:[x,y][], qty:number,
+                   dims:{w,h}, faceIndices?:number[] }] }
+     | { mode:'solid',  pieces:[{ id, label, qty }] }
+     | { mode:'board-list',
+         pieces:[{ id, label, length, width, thickness, qty, grain? }] }
+     | null
+     Drives the Export tab: piece previews, per-piece DXF, batch actions.
+     If absent/null, auto-derived: cut-sheet/milled → sig3d panel groups;
+     printed/kernel → whole-part solid mode.
+
    ─────────────────────────────────────────────────────────────────────────────
    See examples/crystal/model.js  — analytic tier, multi-part (crystal + base)
        examples/phone_case/model.js — kernel tier, fillet + shell + boolean

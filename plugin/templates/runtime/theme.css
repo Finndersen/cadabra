@@ -88,3 +88,46 @@ select { width:100%; background:#0a0e13; color:var(--ink); border:1px solid #283
 .hint { position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
   color:var(--mut); font-size:12px; background:rgba(12,15,20,.7); padding:6px 12px;
   border-radius:20px; pointer-events:none; }
+/* Design / Export tab toggle */
+.tabs { display:flex; gap:5px; margin:12px 0 8px; }
+.tab-btn { flex:1; background:#0a0e13; color:var(--mut); border:1px solid #28333f;
+  border-radius:6px; padding:7px 0; font-size:12.5px; font-weight:500; cursor:pointer; }
+.tab-btn.active { background:var(--acc); color:#06222a; border-color:var(--acc); font-weight:600; }
+.tab-btn:not(.active):hover { border-color:var(--acc); color:var(--ink); }
+/* Export panel */
+.exp-section { border:1px solid #28333f; border-radius:10px; margin:10px 0;
+  background:#0e141b; overflow:hidden; }
+.exp-sec-h { display:flex; align-items:center; gap:8px; padding:10px 12px; background:#121922; }
+.exp-sec-h .nm { font-size:13.5px; font-weight:600; }
+.exp-sec-h .fab { font-size:10px; color:var(--mut); border:1px solid #28333f;
+  border-radius:10px; padding:1px 7px; }
+.exp-sec-h .sp { flex:1; }
+.exp-sec-h .exp-sum { font-size:11.5px; color:var(--mut); }
+.exp-sec-b { padding:10px 12px 12px; }
+/* piece-type grid (sheet mode) */
+.exp-pieces { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.piece-card { display:flex; align-items:center; gap:8px; background:#0a0e13;
+  border:1px solid #28333f; border-radius:8px; padding:8px; cursor:pointer;
+  transition:border-color .15s; }
+.piece-card:hover { border-color:#445566; }
+.piece-card.active { border-color:var(--acc); }
+.piece-svg svg { display:block; }
+.piece-info { font-size:12px; min-width:68px; }
+.piece-info .piece-label { font-weight:600; color:var(--ink); margin-bottom:1px; }
+.piece-info .piece-qty { color:var(--acc2); font-size:11px; }
+.piece-info .piece-dims { color:var(--mut); font-size:11px; }
+.piece-info button { margin-top:5px; background:#1a2535; color:var(--acc); border:1px solid #28333f;
+  border-radius:4px; padding:3px 8px; font-size:11px; cursor:pointer; }
+.piece-info button:hover { border-color:var(--acc); }
+/* solid-mode estimate rows in export panel */
+.exp-solid { font-size:12px; padding:4px 0 10px; }
+.exp-solid .row { padding:2px 0; }
+.exp-solid .row b { color:var(--acc2); }
+/* batch export action buttons */
+.exp-actions { display:flex; gap:5px; flex-wrap:wrap; }
+.exp-actions button { background:#0a0e13; color:var(--ink); border:1px solid #28333f;
+  border-radius:5px; padding:6px 10px; font-size:12px; cursor:pointer; }
+.exp-actions button:hover { border-color:var(--acc); color:var(--acc); }
+/* empty state */
+.exp-empty { color:var(--mut); font-size:13px; padding:20px 4px; line-height:1.55; }
+.exp-empty code { color:var(--acc2); font-size:11.5px; }

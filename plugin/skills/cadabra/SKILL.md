@@ -66,6 +66,11 @@ the decision log.
 5. **Dimensions & hard constraints** — size envelope, print-bed / sheet / stock
    limits, fit to an existing object, weight, budget, cavities/electronics.
 6. **Aesthetic** — faceted vs smooth, rounded vs sharp, finish, palette.
+7. **Export needs** — what files does the user need to send to fabrication? For
+   cut-sheet: DXF per panel shape, SVG nesting layout, sheet size constraint. For
+   printed: STL per segment or whole-part. For kernel: STEP or STL. Confirm whether
+   individual piece files are needed (e.g. one DXF per unique face type for a laser
+   cutter) vs. a single batch file.
 
 Ask these as a structured set; don't interrogate one question at a time if the
 user clearly wants to move fast, but don't skip fabrication + constraints.
@@ -82,9 +87,11 @@ every researched number with its source in PROJECT.md.**
 Scaffold the project (Phase 3 below also stamps a `PROJECT.md` template), then
 fill it in from the interview + research. This document must let a FUTURE session
 rebuild full context with no chat history. Keep these sections current:
-intent, reference material, fabrication, dimensions & constraints (with sources),
-aesthetic, geometry/engine decisions, open questions, and a **decision log**
-(date — decision — why). **Update it whenever a requirement or decision changes.**
+intent, reference material, fabrication (incl. **export format needs per part**,
+sheet/bed size constraints, DXF label conventions, file delivery format),
+dimensions & constraints (with sources), aesthetic, geometry/engine decisions,
+open questions, and a **decision log** (date — decision — why).
+**Update it whenever a requirement or decision changes.**
 
 ### Phase 3 — Scaffold
 
@@ -155,6 +162,18 @@ topological changes you edit `model.js` (or, for deep UI rework, the project's o
 `runtime.js`/`index.html`/`theme.css` — all project-owned copies), then the user
 clicks **Reload**. When fabrication choice changes (e.g. acrylic → PLA), flip the
 part's `fab`/`exports`/`engine` and re-price. Update PROJECT.md's decision log.
+
+**Export tab** — the app has a **Design / Export** tab toggle in the sidebar. The
+Export tab shows a fab-appropriate preview per part:
+- **cut-sheet / milled**: panel-type grid (2D polygon preview, qty, dimensions).
+  Clicking a panel card highlights those faces in the 3D view. Per-piece DXF and
+  batch ZIP/SVG nesting actions.
+- **printed / kernel**: estimate rows (volume, mass, cost) + STL/STEP download.
+
+The runtime auto-derives the panel breakdown from `out.faces` for cut-sheet parts —
+no `exportPieces()` needed unless the model wants semantic labels or custom grouping.
+Set `exports:['dxf','svg','stl']` etc. on each part to control which export formats
+appear. Parts with no `exports:[]` defined do not appear in the Export tab.
 
 ---
 
