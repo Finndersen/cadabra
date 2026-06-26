@@ -1,0 +1,23 @@
+{
+  "name": "cadabra-plugin",
+  "version": "0.2.0",
+  "description": "Cadabra — a Claude Code plugin that conjures bespoke, live, parametric CAD apps per project.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "cadabra-scaffold": "./scripts/scaffold_project.mjs",
+    "cadabra-shot": "./scripts/screenshot.mjs",
+    "cadabra-verify": "./scripts/verify.mjs"
+  },
+  "scripts": {
+    "scaffold": "node scripts/scaffold_project.mjs",
+    "shot": "node scripts/screenshot.mjs",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.1"
+  },
+  "optionalDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}

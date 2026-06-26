@@ -1,0 +1,20 @@
+{
+  "name": "cadabra",
+  "displayName": "Cadabra",
+  "version": "0.2.0",
+  "description": "Conjures a bespoke, live, parametric CAD app per project: interview to a living PROJECT.md, scaffold a file://-ready three.js viewer, author model.js geometry, iterate. Fabrication-aware (3D print / laser-cut / mill / carpentry); STL/DXF/SVG/STEP exports.",
+  "author": {
+    "name": "Cadabra"
+  },
+  "keywords": [
+    "cad",
+    "parametric",
+    "3d-printing",
+    "laser-cutting",
+    "three.js",
+    "replicad",
+    "fabrication"
+  ],
+  "license": "MIT",
+  "skills": "./skills/"
+}

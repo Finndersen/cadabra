@@ -1,0 +1,15 @@
+{
+  "name": "cadabra",
+  "owner": {
+    "name": "Cadabra"
+  },
+  "plugins": [
+    {
+      "name": "cadabra",
+      "source": "./plugin",
+      "description": "Conjures a bespoke, live, parametric CAD app per project: interview to a living PROJECT.md, scaffold a file://-ready three.js viewer, author model.js geometry, iterate. Fabrication-aware exports (STL/DXF/SVG/STEP).",
+      "version": "0.2.0",
+      "keywords": ["cad", "parametric", "3d-printing", "laser-cutting", "fabrication"]
+    }
+  ]
+}
