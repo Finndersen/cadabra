@@ -15,8 +15,6 @@ loop with a **live user-controlled viewer**, a **two-tier geometry engine**
 (instant analytic math + an in-browser CAD kernel), and **fabrication-aware
 outputs** (3D print, laser/CNC cut, milling, carpentry).
 
-![Crystal example](plugin/examples/crystal/exports/crystal_iso.png)
-
 ---
 
 ## What it generates
@@ -94,8 +92,8 @@ plugin/
     reference.md                  # the model.js contract + analytic/kernel recipes
   templates/runtime/              # the canonical runtime, copied into each project
     index.html  runtime.js  theme.css  kernel.js  model.js (generic stub)
-  examples/crystal/               # worked ANALYTIC project (crystal + printed base)
-  examples/phone_case/            # worked KERNEL project (fillet + shell + boolean, STEP/STL)
+  examples/crystal/model.js        # ANALYTIC example: crystal + printed base
+  examples/phone_case/model.js    # KERNEL example: fillet + shell + boolean, STEP/STL
   scripts/
     scaffold_project.mjs          # stamp out a new project (no agent tokens on boilerplate)
     screenshot.mjs                # on-demand PNG via Playwright over file:// (occasional)
@@ -105,8 +103,8 @@ plugin/
 ```
 
 - **The template `model.js` is a generic stub** (a tiny example box). The plugin
-  ships **no project-specific configuration**. The crystal+base model lives in
-  `examples/crystal/` purely as a reference and to verify the runtime.
+  ships **no project-specific configuration**. The examples contain only `model.js`
+  — they are reference implementations of the model contract, not full projects.
 - **The runtime is project-owned**: each scaffold gets its own copy, so a project
   can diverge as far as it needs. The one invariant preserved through any rework
   is the `window.__app` agent hook.
@@ -143,11 +141,11 @@ npx playwright install chromium   # once
 # verify the generic stub template renders over file:// (no server):
 node scripts/verify.mjs
 
-# verify the analytic crystal example:
-node scripts/verify.mjs examples/crystal/index.html
+# verify the analytic crystal example (scaffolds a temp project, overlays model.js):
+node scripts/verify.mjs examples/crystal/model.js
 
 # verify the kernel phone-case example (boots replicad WASM in a worker over file://):
-node scripts/verify.mjs examples/phone_case/index.html
+node scripts/verify.mjs examples/phone_case/model.js
 
 # scaffold + capture a screenshot:
 node scripts/scaffold_project.mjs --dir /tmp/demo --name "Demo" --fab printed

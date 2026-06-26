@@ -16,6 +16,35 @@ accordion, slider+number controls, the dependency-ordered build pipeline,
 three.js rendering with the tuned orbit navigation, per-part + assembly estimates,
 exports, config save/load, localStorage, the Reload button, and `window.__app`.
 
+## Types
+
+```
+RangeParam
+  { key:string, label:string, unit?:string,
+    min:number, max:number, step:number, default:number,
+    group?:string, hardMin?:number, hardMax?:number }
+  Renders as slider + number input.
+  group:         starts a new labelled section in the controls card.
+  hardMin/Max:   let a typed value exceed the slider's soft range (slider pins).
+
+ChoiceParam
+  { key:string, label:string, type:'choice',
+    options:[[value, displayLabel], ...], default:value, group?:string }
+  Renders as segmented buttons.
+
+Faces  →  Array<Array<[x:number, y:number, z:number]>>
+  Array of 3D polygons. Each polygon is an array of [x,y,z] vertices wound so
+  the outward normal faces away from the model interior.
+
+BuildCtx
+  { [partId]: buildOut, printMat:string,
+    MATERIALS:{ [key]:{ rho:number, price:number } } }
+  Shared build context passed to build/transform/estimate.
+  ctx[id]       = build output of each already-built dependency (from dependsOn[]).
+  ctx.printMat  = user-selected material key (e.g. 'pla').
+  ctx.MATERIALS = material density/price table.
+```
+
 ## MODEL shape
 
 ```js
@@ -23,7 +52,7 @@ window.MODEL = {
   meta: { name: "My Thing", units: "mm", fabricationDefault: "printed" },
   MATERIALS: { pla:{rho:1.24,price:22}, petg:{rho:1.27,price:25},
                abs:{rho:1.04,price:24}, resin:{rho:1.10,price:40} },
-  parts: [ /* one entry PER PART; an assembly is an array, built in dep order */ ],
+  parts: [ /* one PartDef per part; an assembly is an ordered array */ ],
 };
 ```
 
@@ -31,26 +60,26 @@ window.MODEL = {
 
 ```js
 {
-  id, name,
-  engine: 'analytic' | 'kernel',
-  fab: 'printed' | 'cut-sheet' | 'milled' | 'carpentry',
-  dependsOn: [ids],                  // later parts read earlier outputs via ctx[id]
-  render: { styles:['acrylic','pla','clay','metal','wire'], default:'pla' },
-  exports: ['stl','dxf','svg','step'],
-  params: [
-    { key, label, unit, min, max, step, default, group?, hardMin?, hardMax? }, // range
-    { key, label, type:'choice', options:[[val,label],...], default },          // choice
-  ],
-  build(params, ctx) { /* see below */ },
-  transform(params, ctx) { return { z }; },             // placement (z offset) in the assembly
-  estimate(out, params, ctx) { return { cost, rows:[[label,value],...] }; },
+  id:        string,
+  name:      string,
+  engine:    'analytic' | 'kernel',
+  fab:       'printed' | 'cut-sheet' | 'milled' | 'carpentry',
+  dependsOn: string[],   // ids of parts that must build before this one
+  render:    { styles:string[], default:string },
+  exports:   ('stl'|'dxf'|'svg'|'step')[],
+  params:    (RangeParam | ChoiceParam)[],
+
+  build(params:Object, ctx:BuildCtx)
+    → { faces:Faces, ...published }                          // engine:'analytic'
+    → Promise<{ geometry:BufferGeometry, edges:BufferGeometry,
+                volume:number, blobSTL:Blob, blobSTEP:Blob }> // engine:'kernel'
+
+  transform(params:Object, ctx:BuildCtx) → { z:number }
+
+  estimate(out:buildOut, params:Object, ctx:BuildCtx)
+    → { cost:number, rows:[[label:string, value:string|number], ...] }
 }
 ```
-
-- **Range params** render as slider + number. `hardMin/hardMax` let a typed value
-  exceed the slider's soft range while the slider pins at its end.
-- **Choice params** render as segmented buttons. Options are `[value, label]`.
-- **`group`** starts a new labelled group of controls in the card.
 
 ## build() — analytic tier
 
