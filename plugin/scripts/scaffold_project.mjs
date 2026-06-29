@@ -25,8 +25,10 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = resolve(join(__dirname, ".."));
 const RUNTIME_DIR = join(PLUGIN_ROOT, "templates", "runtime");
+const INDEX_TEMPLATE = join(PLUGIN_ROOT, "templates", "index.html");
 
-const RUNTIME_FILES = ["index.html", "runtime.js", "theme.css", "kernel.js"];
+// Engine files go into project/runtime/; index.html goes to project root.
+const RUNTIME_FILES = ["runtime.js", "theme.css", "kernel.js"];
 
 export function scaffold(spec) {
   const dir = resolve(spec.dir);
@@ -35,20 +37,24 @@ export function scaffold(spec) {
   const force = !!spec.force;
 
   mkdirSync(dir, { recursive: true });
+  mkdirSync(join(dir, "runtime"), { recursive: true });
   mkdirSync(join(dir, "config"), { recursive: true });
   mkdirSync(join(dir, "exports"), { recursive: true });
 
   const written = [];
-  // stable shell files — always refreshable with --force
+  // engine files → project/runtime/ (always refreshable with --force)
   for (const f of RUNTIME_FILES) {
-    const dest = join(dir, f);
-    if (!existsSync(dest) || force) { copyFileSync(join(RUNTIME_DIR, f), dest); written.push(f); }
+    const dest = join(dir, "runtime", f);
+    if (!existsSync(dest) || force) { copyFileSync(join(RUNTIME_DIR, f), dest); written.push("runtime/" + f); }
   }
+  // index.html → project root
+  const indexDest = join(dir, "index.html");
+  if (!existsSync(indexDest) || force) { copyFileSync(INDEX_TEMPLATE, indexDest); written.push("index.html"); }
 
   // model.js — the generic stub. Never clobber a non-empty existing one (agent-authored).
   const modelDest = join(dir, "model.js");
   if (!(existsSync(modelDest) && statSync(modelDest).size > 0)) {
-    copyFileSync(join(RUNTIME_DIR, "model.js"), modelDest);
+    copyFileSync(join(PLUGIN_ROOT, "templates", "model.js"), modelDest);
     written.push("model.js");
   }
 
@@ -104,7 +110,8 @@ project by editing files and using the agent hook and scripts below.
 
 - \`model.js\` — the parametric geometry. **The file you edit in the common case.**
 - \`PROJECT.md\` — the living design document. Read it first every session.
-- \`runtime.js\`, \`index.html\`, \`theme.css\`, \`kernel.js\` — the Cadabra engine
+- \`index.html\` — the app entry point (project-owned copy).
+- \`runtime/\` — the Cadabra engine: \`runtime.js\`, \`kernel.js\`, \`theme.css\`
   (project-owned copies — see "Custom runtime changes" below).
 
 ## Every session: start here
@@ -116,9 +123,9 @@ project by editing files and using the agent hook and scripts below.
    node ${pluginRoot}/scripts/upgrade_runtime.mjs --dir . --check
    \`\`\`
    - **Exit 0:** runtime is current — proceed with your work.
-   - **Exit 1:** a newer runtime is available. Tell the user what changed
-     (the script prints the changelog) and ask if they want to update. If yes,
-     activate the **\`update-project\`** skill to apply it.
+   - **Exit 1:** a newer runtime is available. Read the changelog output printed
+     by the script, summarise the changes to the user, and ask if they want to
+     update. If yes, activate the **\`update-project\`** skill to apply it.
 
 ## Making changes
 
@@ -137,11 +144,14 @@ project by editing files and using the agent hook and scripts below.
   \`\`\`
   node ${pluginRoot}/scripts/verify.mjs ./index.html
   \`\`\`
+- **Sandbox note:** \`screenshot.mjs\` and \`verify.mjs\` launch a headless browser
+  via Playwright. If either fails with a permission or operation-not-permitted
+  error, re-run it with the Claude sandbox disabled.
 
 ## Custom runtime changes
 
-\`runtime.js\`, \`index.html\`, and \`theme.css\` are **project-owned copies** — you
-can edit them directly if the user needs something the standard framework does not
+\`index.html\` and the files in \`runtime/\` are **project-owned copies** — you can
+edit them directly if the user needs something the standard framework does not
 support: a custom UI control, a new export format, a bespoke rendering mode, extra
 sidebar content, etc. Treat them as ordinary code files. The only invariant: keep
 \`window.__app\` (especially \`screenshot()\`) intact — it is the agent's eyes on

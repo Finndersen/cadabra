@@ -13,6 +13,10 @@ Run it only after confirming with the user that they want to update.
 
 `${CLAUDE_PLUGIN_ROOT}` is the Cadabra plugin root.
 
+> **Sandbox:** `verify.mjs` launches a headless browser via Playwright. If it
+> fails with a permission or operation-not-permitted error, re-run it with the
+> Claude sandbox disabled.
+
 ## Step 1 — Check what will change
 
 ```
@@ -30,10 +34,8 @@ Safe to apply directly — no model.js changes required:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/upgrade_runtime.mjs --dir <project-dir>
 ```
 
-The script copies `index.html`, `runtime.js`, `theme.css`, `kernel.js` and
-prints the changelog. It never touches `model.js` or `PROJECT.md`.
-
-Summarise what changed to the user, then verify the project still works:
+The script copies the runtime files and prints the changelog. It never touches
+`model.js` or `PROJECT.md`. Summarise what changed to the user, then verify:
 
 ```
 node ${CLAUDE_PLUGIN_ROOT}/scripts/verify.mjs <project-dir>/index.html
@@ -43,23 +45,26 @@ Done. Tell the user what was updated.
 
 ## Step 2b — Major-version upgrade
 
-The script prints migration notes from `RUNTIME_CHANGELOG.md` and exits without
-writing files. Read the migration notes carefully — they describe API changes and
-the steps required to update `model.js`.
+**Do not run `--force-major` yet.** Major upgrades require manual migration steps
+before the runtime files are copied. Follow these steps exactly:
 
-1. **Read `<project-dir>/model.js`** to understand the current geometry.
-2. **Apply the migration steps** from the printed notes to `model.js`. Be precise:
-   these notes describe renamed fields, changed signatures, or removed APIs.
-3. **Update `PROJECT.md`'s decision log** with a note: what changed and why.
-4. **Copy the runtime files:**
+1. **Apply every migration step** from the `--check` output above. These are
+   concrete file operations (moving files, updating paths, renaming fields in
+   `model.js`, etc.) — execute each one now, in order, before proceeding.
+
+2. **Update `PROJECT.md`'s decision log** with a note: what changed and why.
+
+3. **Copy the new runtime files:**
    ```
    node ${CLAUDE_PLUGIN_ROOT}/scripts/upgrade_runtime.mjs --dir <project-dir> --force-major
    ```
-5. **Verify:**
+
+4. **Verify:**
    ```
    node ${CLAUDE_PLUGIN_ROOT}/scripts/verify.mjs <project-dir>/index.html
    ```
-6. Tell the user what changed and confirm the app looks correct. Take a
+
+5. Tell the user what changed and confirm the app looks correct. Take a
    screenshot if there's any visual uncertainty.
 
 ## If verify fails

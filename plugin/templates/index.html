@@ -11,17 +11,17 @@
   How the file:// loading works (and why it's structured this way):
    - three.js + its examples (OrbitControls, RoomEnvironment) are ES modules. CDN
      https module imports DO work from a file:// page, but LOCAL module files
-     (./runtime.js, ./model.js) do NOT (Chrome blocks them over file://).
+     (./runtime/runtime.js, ./model.js) do NOT (Chrome blocks them over file://).
    - So: the libraries load via ONE inline <script type="module"> (below) that
-     stashes them on window.* . model.js and runtime.js then load as CLASSIC
+     stashes them on window.* . model.js and runtime/runtime.js then load as CLASSIC
      scripts that attach globals (window.MODEL, window.CADABRA) — classic scripts
      load fine over file://.
    - The module boot waits for the classic scripts, then calls CADABRA.boot(...).
 
   The agent rarely edits this file; the common case is editing model.js.
-  theme.css = design tokens · runtime.js = the engine · model.js = AGENT-AUTHORED.
+  runtime/theme.css = design tokens · runtime/runtime.js = the engine · model.js = AGENT-AUTHORED.
 ============================================================================ -->
-<link rel="stylesheet" href="./theme.css">
+<link rel="stylesheet" href="./runtime/theme.css">
 </head>
 <body>
 <div id="app">
@@ -79,7 +79,7 @@
       <button data-v="top">Top</button>
       <button data-v="bottom">Bottom</button>
     </div>
-    <div class="hint">left-drag = orbit (model centre) · right-drag = pan · scroll = zoom to cursor</div>
+    <div class="hint">left-drag = orbit (model centre) · two-finger scroll = pan · pinch = zoom</div>
   </div>
 </div>
 
@@ -96,13 +96,13 @@
 </script>
 
 <!-- Classic scripts: attach window.MODEL and window.CADABRA. Load fine over file://.
-     kernel.js is the kernel tier (replicad/OpenCASCADE WASM in a Blob-URL Web
+     runtime/kernel.js is the kernel tier (replicad/OpenCASCADE WASM in a Blob-URL Web
      Worker) — first-class and lazy: it only defines window.CADABRA_KERNEL, and
      nothing downloads until a kernel part actually calls CADABRA_KERNEL.ready().
      Direct-only projects pay zero cost for it. -->
 <script src="./model.js"></script>
-<script src="./kernel.js"></script>
-<script src="./runtime.js"></script>
+<script src="./runtime/kernel.js"></script>
+<script src="./runtime/runtime.js"></script>
 
 <!-- The ONLY module on the page: import the CDN libs, hand them to the runtime. -->
 <script type="module">

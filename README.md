@@ -59,6 +59,16 @@ so a server is genuinely not required. (If a locked-down browser ever blocks
 The marketplace (`.claude-plugin/marketplace.json`) points at `./plugin`, whose
 manifest is `plugin/.claude-plugin/plugin.json`.
 
+## Skills
+
+The plugin ships three skills:
+
+| Skill | Trigger | What it does |
+|---|---|---|
+| **`setup-new-project`** | "Design a X", "Model a bracket", "Help me laser-cut..." | Full new-project workflow: interview → PROJECT.md → scaffold → author model.js → self-review → iterate |
+| **`update-project`** | Runtime version mismatch detected in a project session | Upgrades a project's runtime files; handles same-major (copy files) and major-version (read migration notes, update model.js, then copy) paths |
+| **`review-design`** | "Review the design", "Is this printable?", "Check for problems" | Reviews a Cadabra project for fabrication issues, constraint violations, and export readiness |
+
 ## Invoke
 
 Just describe what you want to make:
@@ -67,7 +77,7 @@ Just describe what you want to make:
 > "Help me laser-cut an acrylic enclosure for this PCB."
 > "I want to model a faceted crystal sculpture on a printed base."
 
-The **`cadabra`** skill triggers and runs the workflow:
+The **`setup-new-project`** skill triggers and runs the workflow:
 
 1. **Gather** — interviews you for use case, reference material, fabrication
    process, materials, dimensions, constraints, and aesthetic.
@@ -87,18 +97,25 @@ The **`cadabra`** skill triggers and runs the workflow:
 ```
 plugin/
   .claude-plugin/plugin.json      # plugin manifest
-  skills/cadabra/
-    SKILL.md                      # the workflow: gather → PROJECT.md → model.js → iterate
-    reference.md                  # the model.js contract + analytic/kernel recipes
+  skills/
+    setup-new-project/
+      SKILL.md                    # new-project workflow: gather → PROJECT.md → scaffold → model.js → iterate
+      reference.md                # the model.js contract + analytic/kernel recipes
+    update-project/
+      SKILL.md                    # runtime upgrade workflow (same-major and breaking-major paths)
+    review-design/
+      SKILL.md                    # design review: fabrication issues, constraints, export readiness
   templates/runtime/              # the canonical runtime, copied into each project
-    index.html  runtime.js  theme.css  kernel.js  model.js (generic stub)
+    runtime.js  theme.css  kernel.js
+  templates/                      # top-level template files (index.html + model.js stub)
+    index.html  model.js
   examples/crystal/model.js        # ANALYTIC example: crystal + printed base
   examples/phone_case/model.js    # KERNEL example: fillet + shell + boolean, STEP/STL
   scripts/
     scaffold_project.mjs          # stamp out a new project (no agent tokens on boilerplate)
     screenshot.mjs                # on-demand PNG via Playwright over file:// (occasional)
+    upgrade_runtime.mjs           # runtime upgrade helper (check/apply)
     verify.mjs                    # verification gates over file://
-  mcp/driver.mjs                  # OPTIONAL warm Playwright driver (only if you build an MCP server)
 .claude-plugin/marketplace.json   # marketplace catalog → ./plugin
 ```
 

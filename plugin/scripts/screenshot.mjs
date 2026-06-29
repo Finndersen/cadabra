@@ -30,7 +30,7 @@ import { resolve } from "node:path";
 import { writeFileSync, readFileSync } from "node:fs";
 
 function parseArgs(argv) {
-  const a = { sets: [], width: 1280, height: 900, view: null, config: null, wait: 700, out: "shot.png" };
+  const a = { sets: [], width: 800, height: 600, view: null, config: null, wait: 700, out: "shot.png", dump: null, part: null };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
     const next = () => argv[++i];
@@ -42,6 +42,8 @@ function parseArgs(argv) {
     else if (k === "--width") a.width = parseInt(next(), 10);
     else if (k === "--height") a.height = parseInt(next(), 10);
     else if (k === "--wait") a.wait = parseInt(next(), 10);
+    else if (k === "--dump") a.dump = next();
+    else if (k === "--part") a.part = next();
     else if (k === "--help" || k === "-h") a.help = true;
   }
   return a;
@@ -53,6 +55,8 @@ const HELP = `cadabra screenshot — render a project index.html to PNG (file://
   --set '<id>:{...}' setParams JSON for a part (repeatable)
   --view <preset>    iso|front|back|left|right|top|bottom
   --config <file>    load a saved config JSON before rendering
+  --dump <file>      write getState() + report() JSON to this file
+  --part <id>        hide all other parts; camera re-fits to this part only
   --width/--height   viewport size (default 1280x900)
   --wait <ms>        extra settle time after build (default 700)`;
 
@@ -85,12 +89,26 @@ export async function capture(opts) {
 
     // setParams/loadConfig trigger an async rebuild for kernel parts — let it settle.
     await page.waitForFunction(() => window.__app && !window.__app.solving, { timeout: 60000 }).catch(() => {});
+
+    if (opts.part) {
+      const allParts = await page.evaluate(() => window.__app.parts());
+      for (const p of allParts) {
+        if (p.id !== opts.part) await page.evaluate((id) => window.__app.setVisible(id, false), p.id);
+      }
+    }
+
     await page.waitForTimeout(opts.wait);   // let the build + camera animation settle
     const dataUrl = await page.evaluate(() => window.__app.screenshot());
     const b64 = dataUrl.replace(/^data:image\/png;base64,/, "");
     const outPath = resolve(opts.out);
     writeFileSync(outPath, Buffer.from(b64, "base64"));
-    return { outPath, consoleErrors, hookOk: true };
+    let state = null, report = null;
+    if (opts.dump) {
+      state  = await page.evaluate(() => window.__app.getState());
+      report = await page.evaluate(() => window.__app.report());
+      writeFileSync(resolve(opts.dump), JSON.stringify({ state, report }, null, 2));
+    }
+    return { outPath, consoleErrors, hookOk: true, state, report };
   } finally {
     await browser.close();
   }
@@ -103,6 +121,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   capture(a)
     .then((r) => {
       console.log("wrote " + r.outPath);
+      if (a.dump) console.log("wrote " + resolve(a.dump));
       if (r.consoleErrors.length) {
         console.error("console errors:\n  " + r.consoleErrors.join("\n  "));
         process.exit(2);

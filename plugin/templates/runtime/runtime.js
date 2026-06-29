@@ -139,8 +139,9 @@ function boot(libs){
   const controls=new OrbitControls(camera,renderer.domElement);
   controls.enableDamping=false;                          // CAD-style direct orbit
   controls.enableRotate=false;                           // rotation is custom (pivot = model centre)
-  controls.enablePan=true;                               // pan with right-drag
-  controls.zoomToCursor=true;                            // scroll zooms toward the pointer
+  controls.enablePan=true;                               // pan with right-drag (mouse) or two-finger scroll (trackpad)
+  controls.zoomToCursor=true;                            // zoom toward the pointer
+  controls.zoomSpeed=10;
   scene.add(new THREE.AmbientLight(0xffffff,0.6));
   const d1=new THREE.DirectionalLight(0xffffff,0.85); d1.position.set(1,-1,1.6); scene.add(d1);
   const d2=new THREE.DirectionalLight(0x88e0ff,0.35); d2.position.set(-1,1,0.4); scene.add(d2);
@@ -253,7 +254,24 @@ function boot(libs){
   document.querySelectorAll('#views button').forEach(btn=>
     btn.addEventListener('click',()=>setView(VIEWS[btn.dataset.v])));
   renderer.domElement.addEventListener('pointerdown',()=>{ if(_anim){ cancelAnimationFrame(_anim); _anim=null; } });
-  renderer.domElement.addEventListener('wheel',()=>{ if(_anim){ cancelAnimationFrame(_anim); _anim=null; } });
+  // Trackpad: two-finger scroll → pan; pinch (ctrlKey on Mac) → zoom via OrbitControls.
+  // Capture phase so this runs before OrbitControls' bubble-phase wheel handler.
+  renderer.domElement.addEventListener('wheel', e => {
+    if (_anim) { cancelAnimationFrame(_anim); _anim = null; }
+    if (e.ctrlKey) return; // pinch gesture → fall through to OrbitControls zoom
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const dScale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 300 : 1;
+    const dist = camera.position.distanceTo(controls.target);
+    const scale = dist * 0.002;
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+    const up    = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+    const offset = right.multiplyScalar(-e.deltaX * dScale * scale)
+                        .add(up.multiplyScalar(e.deltaY * dScale * scale));
+    camera.position.add(offset);
+    controls.target.add(offset);
+    controls.update();
+  }, { capture: true, passive: false });
 
   const lineMat=new THREE.LineBasicMaterial({color:0x9af0f5});
   const baseLineMat=new THREE.LineBasicMaterial({color:0x2c353f});
@@ -765,5 +783,5 @@ function boot(libs){
   rebuild();
 }
 
-window.CADABRA = { boot, version: "0.4.0" };
+window.CADABRA = { boot, version: "1.0.1" };
 })();

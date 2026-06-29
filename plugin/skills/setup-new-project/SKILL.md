@@ -162,6 +162,10 @@ be self-contained: only its `(replicad, p)` args, never `model.js` scope.
 You usually understand the design from the code. When you need to look —
 a specific visual concern, or the user asks — capture a screenshot:
 
+> **Sandbox:** `screenshot.mjs` and `verify.mjs` launch a headless browser via
+> Playwright. If either command fails with a permission or operation-not-permitted
+> error, re-run it with the Claude sandbox disabled.
+
 ```
 node ${CLAUDE_PLUGIN_ROOT}/scripts/screenshot.mjs --html <project>/index.html \
      --out shot.png [--view iso|front|top|...] [--set 'partId:{"H":1400}']

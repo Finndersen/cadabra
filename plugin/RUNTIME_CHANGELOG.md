@@ -22,6 +22,55 @@ For MAJOR versions, the **Migration** section is the agent's step-by-step guide.
 
 ---
 
+## 1.0.1 — 2026-06-29 — patch
+
+**Type:** patch
+**Auto-upgrade safe:** yes
+**model.js compatibility:** Fully backward-compatible.
+
+### Changes
+- **Pinch zoom speed increased:** `zoomSpeed` raised from 2 → 10 for more
+  responsive pinch-to-zoom on trackpads.
+
+---
+
+## 1.0.0 — 2026-06-29 — MAJOR
+
+**Type:** MAJOR
+**Auto-upgrade safe:** no — project file layout changed; manual migration required before running upgrade_runtime.mjs.
+**model.js compatibility:** Fully backward-compatible. No changes to model.js API.
+
+### Changes
+- **Runtime files moved to `runtime/` subdir:** `runtime.js`, `kernel.js`, and
+  `theme.css` now live in `project/runtime/` instead of the project root.
+  `index.html` remains at the project root and references them via `./runtime/`.
+- **Trackpad navigation:** two-finger scroll now pans the camera (deltaX + deltaY
+  translated to a right/up camera offset scaled by distance). Pinch gesture
+  (Mac `ctrlKey` + wheel) zooms via OrbitControls. `zoomSpeed` bumped to 2 for
+  more responsive pinch-to-zoom. Mouse right-drag pan still works.
+- **Hint text updated:** sidebar hint now reads
+  `left-drag = orbit · two-finger scroll = pan · pinch = zoom`.
+
+### Migration
+
+For each existing project, before running `upgrade_runtime.mjs --force-major`:
+
+1. Create a `runtime/` subdirectory in the project root:
+   ```
+   mkdir runtime
+   ```
+2. Move the three engine files into it:
+   ```
+   mv runtime.js kernel.js theme.css runtime/
+   ```
+3. Update `index.html` — change the three `<script src>` and `<link>` paths:
+   - `<link rel="stylesheet" href="./theme.css">` → `href="./runtime/theme.css"`
+   - `<script src="./kernel.js">` → `src="./runtime/kernel.js"`
+   - `<script src="./runtime.js">` → `src="./runtime/runtime.js"`
+4. Run `upgrade_runtime.mjs --dir . --force-major` to copy the new runtime files.
+
+---
+
 ## 0.4.0 — 2026-06-26 — minor
 
 **Type:** minor  

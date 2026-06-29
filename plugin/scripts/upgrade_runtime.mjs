@@ -22,15 +22,17 @@
    Major upgrades: the agent reads the printed migration notes, applies any
    required model.js changes, then re-runs with --force-major to complete.
    ============================================================================ */
-import { readFileSync, copyFileSync, existsSync } from "node:fs";
+import { readFileSync, copyFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = resolve(join(__dirname, ".."));
 const RUNTIME_DIR = join(PLUGIN_ROOT, "templates", "runtime");
+const INDEX_TEMPLATE = join(PLUGIN_ROOT, "templates", "index.html");
 const CHANGELOG_PATH = join(PLUGIN_ROOT, "RUNTIME_CHANGELOG.md");
-const RUNTIME_FILES = ["index.html", "runtime.js", "theme.css", "kernel.js"];
+// Engine files live in project/runtime/; index.html is at project root.
+const RUNTIME_FILES = ["runtime.js", "theme.css", "kernel.js"];
 
 function extractVersion(content) {
   const m = content.match(/window\.CADABRA\s*=\s*\{[^}]*version:\s*"([^"]+)"/);
@@ -56,7 +58,7 @@ function canonicalVersion() {
 }
 
 function projectVersion(dir) {
-  const path = join(dir, "runtime.js");
+  const path = join(dir, "runtime", "runtime.js");
   if (!existsSync(path)) return null;
   return extractVersion(readFileSync(path, "utf8"));
 }
@@ -87,10 +89,13 @@ function changelogSections(fromVersion) {
 
 function copyRuntimeFiles(projectDir) {
   const copied = [];
+  mkdirSync(join(projectDir, "runtime"), { recursive: true });
   for (const f of RUNTIME_FILES) {
-    copyFileSync(join(RUNTIME_DIR, f), join(projectDir, f));
-    copied.push(f);
+    copyFileSync(join(RUNTIME_DIR, f), join(projectDir, "runtime", f));
+    copied.push("runtime/" + f);
   }
+  copyFileSync(INDEX_TEMPLATE, join(projectDir, "index.html"));
+  copied.push("index.html");
   return copied;
 }
 

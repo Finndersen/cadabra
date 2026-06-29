@@ -113,16 +113,15 @@ breaking — use minor or patch.
 
 ## Testing changes
 
-After editing any runtime template file, run the verify script against both
-example projects to confirm they boot without errors:
+After editing any runtime template file, run the verify script against a
+scaffolded project to confirm it boots without errors:
 
 ```
-node plugin/scripts/verify.mjs plugin/examples/crystal/index.html
-node plugin/scripts/verify.mjs plugin/examples/phone_case/index.html
+node plugin/scripts/verify.mjs path/to/project/index.html
 ```
 
-Both should exit 0. The crystal example covers the direct engine; the phone_case
-example covers the kernel engine (requires CDN access).
+For thorough coverage, test against one direct-engine project and one
+kernel-engine project (kernel requires CDN access). The script exits 0 on pass.
 
 ## Skill and reference documentation
 
