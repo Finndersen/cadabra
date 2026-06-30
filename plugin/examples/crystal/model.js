@@ -187,32 +187,39 @@ const MATERIALS={ pla:{rho:1.24,price:22}, petg:{rho:1.27,price:25},
                   resin:{rho:1.10,price:40}, abs:{rho:1.04,price:24} };
 const ACRYLIC_DENSITY=1.18;       // g/cm³ (cast acrylic / PMMA)
 const ACRYLIC_RATE_PER_MM=85;     // ~$ per m² per mm of sheet thickness (incl. cutting)
-function crystalEstimate(out,p){
+function crystalMetrics(out,p){
   const faces=out.faces, map=edgeMapper(faces);
   const uniq=new Set(faces.map(f=>sig3d(f,map))).size;
   let area=0; for(const f of faces) area+=polyArea3D(f);
   const thk=p.sheetThk||3, m2=area/1e6;
-  const cost=m2*ACRYLIC_RATE_PER_MM*thk;
   const grams=(area*thk/1000)*ACRYLIC_DENSITY;     // mm³ → cm³ × ρ
-  return { cost, rows:[
+  return [
     ['Panels (total)', faces.length],
     ['Unique shapes', uniq],
     ['Largest edge', Math.round(out.maxEdge)+' mm'],
     ['Sheet area', m2.toFixed(2)+' m²'],
     ['Sheet thickness', thk+' mm'],
-    ['Acrylic mass', grams.toFixed(0)+' g'],
-    ['Est. acrylic', '$'+cost.toFixed(2)] ] };
+    ['Acrylic mass', grams.toFixed(0)+' g'] ];
 }
-function baseEstimate(out,p,ctx){
-  const mats=ctx.MATERIALS||MATERIALS, m=mats[ctx.printMat]||mats.pla;
-  const cm3=out.vol/1000, grams=cm3*m.rho, cost=grams/1000*m.price;
-  return { cost, rows:[
+function crystalCost(out,p){
+  let area=0; for(const f of out.faces) area+=polyArea3D(f);
+  const thk=p.sheetThk||3, m2=area/1e6;
+  return { value:m2*ACRYLIC_RATE_PER_MM*thk, label:'Est. acrylic' };
+}
+function baseMetrics(out,p,ctx){
+  const mats=ctx.MATERIALS||MATERIALS, m=mats[p.material]||mats.pla;
+  const cm3=out.vol/1000, grams=cm3*m.rho;
+  return [
     ['Volume (solid)', cm3.toFixed(0)+' cm³'],
     ['Mass', grams.toFixed(0)+' g'],
-    ['Filament cost', '$'+cost.toFixed(2)],
     ['Largest segment', Math.round(out.seg[0])+' × '+Math.round(out.seg[1])+' mm'],
     ['Interior cavity', Math.round(out.cavityW)+' × '+Math.round(out.cavityH)+' mm'],
-    ['Fits controller', out.fits?'yes':'tight'] ] };
+    ['Fits controller', out.fits?'yes':'tight'] ];
+}
+function baseCost(out,p,ctx){
+  const mats=ctx.MATERIALS||MATERIALS, m=mats[p.material]||mats.pla;
+  const grams=(out.vol/1000)*m.rho;
+  return { value:grams/1000*m.price, label:'Filament cost' };
 }
 
 /* ============================================================ MODEL ========= */
@@ -236,11 +243,13 @@ window.MODEL = {
       ],
       build:(p,ctx)=>buildCrystal(p),
       transform:(p,ctx)=>({ z: ctx.base ? ctx.base.seatZ : 0 }),
-      estimate:(out,p,ctx)=>crystalEstimate(out,p) },
+      metrics:(out,p,ctx)=>crystalMetrics(out,p),
+      cost:(out,p,ctx)=>crystalCost(out,p) },
 
     { id:'base', name:'Base (pedestal)', engine:'direct', fab:'printed', dependsOn:['crystal'],
       render:{ styles:['pla','clay','metal','wire'], default:'pla' },
       exports:['stl'],
+      materials:['pla','petg','abs'],
       params:[
         { key:'baseH',      label:'Base height',     unit:'mm', min:30, max:350, step:5, default:70, group:'Shell' },
         { key:'wall',       label:'Wall thickness',  unit:'mm', min:2,  max:20,  step:1, default:5 },
@@ -255,7 +264,8 @@ window.MODEL = {
       ],
       build:(p,ctx)=>buildBaseGeom(p,ctx),
       transform:(p,ctx)=>({ z:0 }),
-      estimate:(out,p,ctx)=>baseEstimate(out,p,ctx) },
+      metrics:(out,p,ctx)=>baseMetrics(out,p,ctx),
+      cost:(out,p,ctx)=>baseCost(out,p,ctx) },
   ],
 };
 })();

@@ -55,10 +55,17 @@ Interview the user before writing any files. Gather:
 3. **Fabrication process** — per part: 3D print (FDM/resin), laser/CNC sheet,
    milling, carpentry. This drives the engine tier and the exports.
 4. **Material(s)** — density, cost, min wall / kerf / clearance, sheet/stock sizes.
-5. **Dimensions & hard constraints** — size envelope, print-bed / sheet / stock
+   If a part should let the user pick among materials at runtime (e.g. PLA vs
+   PETG), note which — this becomes a `materials:[]` field on that part, and is
+   per-part (different parts in the same assembly can take different materials).
+5. **Metrics** — what computed quantities matter to see live per part, beyond
+   cost: lengths, clearances, counts, fit checks. Fabrication cost is optional
+   per part (only define it where it's actually meaningful) — don't assume every
+   part needs a price tag.
+6. **Dimensions & hard constraints** — size envelope, print-bed / sheet / stock
    limits, fit to an existing object, weight, budget, cavities/electronics.
-6. **Aesthetic** — faceted vs smooth, rounded vs sharp, finish, palette.
-7. **Export needs** — DXF per panel shape? SVG nesting? STL per segment? STEP?
+7. **Aesthetic** — faceted vs smooth, rounded vs sharp, finish, palette.
+8. **Export needs** — DXF per panel shape? SVG nesting? STL per segment? STEP?
    Individual piece files vs. single batch?
 
 Ask only the genuinely blocking questions upfront; state assumptions for the rest.
@@ -90,7 +97,10 @@ prevents wasted work when the user has a different mental model.
 
 ### Phase 3 — Scaffold and document
 
-Run the scaffold script to create the project files:
+Run the scaffold script to create the project files. `<project-dir>` defaults to
+a new subdirectory of the **current working directory** (e.g.
+`./<kebab-case-name>`) — not a sibling directory or anywhere else — unless the
+user has specified a different location:
 
 ```
 node ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_project.mjs --dir <project-dir> \
@@ -168,8 +178,12 @@ a specific visual concern, or the user asks — capture a screenshot:
 
 ```
 node ${CLAUDE_PLUGIN_ROOT}/scripts/screenshot.mjs --html <project>/index.html \
-     --out shot.png [--view iso|front|top|...] [--set 'partId:{"H":1400}']
+     --out /tmp/cadabra_shot.png [--view iso|front|top|...] [--set 'partId:{"H":1400}']
 ```
+
+Then `Read /tmp/cadabra_shot.png` to view the image. `screenshot.mjs` also takes
+`--config`, `--dump`, `--part`, `--width`/`--height`, and `--wait` — see
+[reference.md](reference.md#cli-scripts-reference) for the full flag list.
 
 Review against the checklist below, fix, and re-render before presenting.
 
@@ -216,8 +230,12 @@ do not appear in the Export tab.
 | `milled` (CNC) | kernel | per stock | tool-radius corners; fixturing; stock size |
 | `carpentry` | direct/kernel | lumber nominal≠actual (2×4 = 38×89 mm) | board-feet; joinery; grain |
 
-Cost model: printed = volume × density × $/kg. cut-sheet = panel area / sheet → cost.
-Assembly card sums a mixed BOM across parts.
+Cost model (opt-in per part via `cost()` — skip it where cost isn't meaningful):
+printed = volume × density × $/kg. cut-sheet = panel area / sheet → cost.
+Assembly card sums the BOM across whichever parts define `cost()`, and hides
+itself entirely if none do. Printed parts that should let the user choose
+material at runtime declare `materials:[...]` for a per-part picker (see
+reference.md "Materials & cost").
 
 ---
 
@@ -228,6 +246,15 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/verify.mjs <project>/index.html
 ```
 
 Render without console errors · `window.__app` hook intact · config save/load round-trips.
+If a gate fails with a bare timeout (especially a kernel part), re-run with
+`--verbose` to stream every console/pageerror message live — a worker build
+error (e.g. an OCC fillet/boolean failure) logs as `console.error` inside the
+worker and otherwise only surfaces after the gate's timeout, not before it:
+`node ${CLAUDE_PLUGIN_ROOT}/scripts/verify.mjs --verbose <project>/index.html`
+
+`verify.mjs` also takes `--screenshot-out <file>` (save the screenshot gate's
+PNG — omitted by default) and `--json` (dump the full `report()`) — see
+[reference.md](reference.md#cli-scripts-reference) for the full flag list.
 
 ---
 

@@ -37,12 +37,11 @@ Faces  →  Array<Array<[x:number, y:number, z:number]>>
   the outward normal faces away from the model interior.
 
 BuildCtx
-  { [partId]: buildOut, printMat:string,
-    MATERIALS:{ [key]:{ rho:number, price:number } } }
-  Shared build context passed to build/transform/estimate.
+  { [partId]: buildOut, MATERIALS:{ [key]:{ rho:number, price:number } } }
+  Shared build context passed to build/transform/metrics/cost.
   ctx[id]       = build output of each already-built dependency (from dependsOn[]).
-  ctx.printMat  = user-selected material key (e.g. 'pla').
-  ctx.MATERIALS = material density/price table.
+  ctx.MATERIALS = material density/price table. (Per-part material SELECTION is
+                  not on ctx — see materials? on the Part object below.)
 ```
 
 ## MODEL shape
@@ -68,6 +67,8 @@ window.MODEL = {
   render:    { styles:string[], default:string },
   exports:   ('stl'|'dxf'|'svg'|'step')[],
   params:    (RangeParam | ChoiceParam)[],
+  materials?: string[],  // OPTIONAL — keys into MODEL.MATERIALS this part can be
+                          // made from. See "Materials & cost" below.
 
   build(params:Object, ctx:BuildCtx)
     → { faces:Faces, ...published }                          // engine:'direct'
@@ -76,8 +77,15 @@ window.MODEL = {
 
   transform(params:Object, ctx:BuildCtx) → { z:number }
 
-  estimate(out:buildOut, params:Object, ctx:BuildCtx)
-    → { cost:number, rows:[[label:string, value:string|number], ...] }
+  // REQUIRED. Arbitrary computed quantities for the part's live card — not just
+  // cost: lengths, clearances, counts, fit checks, anything useful to surface.
+  metrics(out:buildOut, params:Object, ctx:BuildCtx)
+    → [[label:string, value:string|number], ...]
+
+  // OPTIONAL. Only define if the part's fabrication cost is meaningful/knowable.
+  // See "Materials & cost" below.
+  cost?(out:buildOut, params:Object, ctx:BuildCtx)
+    → number | { value:number, label?:string } | null | undefined
 
   // OPTIONAL — drives the Export tab. If absent/null, auto-derived from fab type.
   exportPieces?(out:buildOut, params:Object, ctx:BuildCtx)
@@ -100,7 +108,8 @@ if `exportPieces` is absent or returns null:
 - **`cut-sheet` / `milled`** → auto sig3d panel groups from `out.faces` (one group
   per unique shape, labelled A/B/C…). Each group shows a 2D polygon preview, qty,
   dimensions, a per-piece DXF button, and batch ZIP + SVG nesting actions.
-- **`printed` / kernel** → whole-part solid mode: estimate rows + STL/STEP buttons.
+- **`printed` / kernel** → whole-part solid mode: metrics rows (+ cost row if
+  defined) + STL/STEP buttons.
 - **`carpentry`** → treated as cut-sheet for now (board-list is future work).
 
 Define `exportPieces()` when you want semantic labels, custom grouping that differs
@@ -203,8 +212,8 @@ async build(p, ctx) {
 the worker**, so it must be self-contained: it may reference ONLY its `(replicad,
 p)` arguments — no closure over `model.js`. Pass everything it needs via `params`.
 
-For a kernel part, `estimate()` uses the returned `volume` (mm³) directly — note a
-shelled part's volume is the WALL volume, which is what you print. The runtime
+For a kernel part, `metrics()`/`cost()` use the returned `volume` (mm³) directly —
+note a shelled part's volume is the WALL volume, which is what you print. The runtime
 shows a "solving…" badge while async builds are in flight and refits the camera on
 the first solve. Pin to replicad 0.23.0 (the URLs in `kernel.js`). Full worked
 example: `examples/phone_case/`.
@@ -220,23 +229,47 @@ build in dependency order; a dependent reads its dependency's published output:
 transform: (p, ctx) => ({ z: ctx.base ? ctx.base.seatZ : 0 }),
 ```
 
-## estimate() — fabrication-aware
+## metrics() and cost() — computed quantities and fabrication-aware pricing
+
+`metrics()` is REQUIRED on every part — return whatever computed quantities are
+useful to see live: volume, mass, lengths, clearances, fit checks, counts. It's
+not just a cost breakdown.
+
+`cost()` is OPTIONAL — only define it when a part's fabrication cost is
+meaningful. A part with no `cost()` simply doesn't contribute to the assembly
+"Bill of materials" row, and that row disappears entirely if no part in the
+project defines one.
+
+For a part with a **per-part material picker**, declare `materials:[...]` (keys
+into `MODEL.MATERIALS`) on the part — the runtime auto-renders a "Material"
+control and the selection shows up as `params.material`, just like any other
+param:
 
 ```js
-function estimatePrinted(out, params, ctx) {
-  const m = (ctx.MATERIALS || MATERIALS)[ctx.printMat] || MATERIALS.pla;
-  const cm3 = out.vol/1000, grams = cm3*m.rho, cost = grams/1000*m.price;
-  return { cost, rows:[
-    ['Volume (solid)', cm3.toFixed(1)+' cm³'],
-    ['Mass', grams.toFixed(0)+' g'],
-    ['Filament cost', '$'+cost.toFixed(2)],
-  ]};
+{
+  id: 'box', /* ... */
+  materials: ['pla', 'petg', 'abs'],     // → per-part Material picker
+  metrics(out, params, ctx) {
+    const m = (ctx.MATERIALS || MATERIALS)[params.material] || MATERIALS.pla;
+    const cm3 = out.vol/1000, grams = cm3*m.rho;
+    return [
+      ['Volume (solid)', cm3.toFixed(1)+' cm³'],
+      ['Mass', grams.toFixed(0)+' g'],
+    ];
+  },
+  cost(out, params, ctx) {
+    const m = (ctx.MATERIALS || MATERIALS)[params.material] || MATERIALS.pla;
+    const grams = (out.vol/1000)*m.rho;
+    return { value: grams/1000*m.price, label: 'Filament cost' };
+  },
 }
 ```
 
-`ctx.printMat` is the user-selected print material; `ctx.MATERIALS` is the table.
-Return `cost` (number) and `rows` (label/value pairs shown in the card). The
-runtime sums `cost` across parts into the assembly BOM.
+`cost()` returning a number (or `{value, label}`) is auto-appended as a row to
+that part's metrics card AND rolled into the assembly total — compute it once in
+`cost()`, don't also hand-write the figure into `metrics()`. Return
+`null`/`undefined` from `cost()` to skip a given rebuild (e.g. cost depends on a
+param that isn't set yet).
 
 ## The window.__app hook (must always survive)
 
@@ -257,9 +290,51 @@ For kernel parts (async builds), a headless driver should wait for
 lands a few seconds after `ready` while replicad + WASM boot. `verify.mjs` and
 `screenshot.mjs` already do this.
 
+**Debugging a failed kernel build:** OCC operations (fillet, boolean fuse/cut)
+fail with a terse error code (e.g. `Error: 10019168`) logged inside the worker
+— `verify.mjs`'s gates only watch for `ready`/`solveCount`, so a build failure
+often just looks like a bare timeout. Run `verify.mjs --verbose` to stream the
+real console.error live. A common cause: filleting AFTER a boolean fuse of two
+multi-facet solids forces OCC to round the complex intersection seam (many
+tiny edges) — fillet each input shape individually before the boolean instead
+(see `examples/` or a project that hit this, e.g. a kernel-tier swept/extruded
+part with two pieces fused together).
+
 Use `report()` for measurements you can't eyeball (did the boolean remove
 material? does the cavity fit? largest panel/segment?). Use `screenshot()` (via
 the CLI script) only when you actually need to look.
+
+## CLI scripts reference
+
+Full flag lists for the two Playwright-driven scripts (both run over `file://`,
+no server). `screenshot.mjs --help`/`-h` prints its own usage; `verify.mjs` has
+no `--help` flag — run it with no args to see its usage line instead.
+
+**`verify.mjs`** — pass/fail smoke-test gates:
+```
+node verify.mjs <path/to/project/index.html>
+  --screenshot-out <file>   also save the screenshot gate's PNG to disk
+                            (omit to just assert screenshot() returns a valid PNG)
+  --json                    dump the full window.__app.report() as JSON
+  --verbose                 stream every console/pageerror message live as the
+                            page loads (use when a gate fails with a bare
+                            timeout — see "Debugging a failed kernel build" above)
+```
+
+**`screenshot.mjs`** — on-demand capture for a specific view:
+```
+node screenshot.mjs --html <path/to/index.html>
+  --out <file>          output PNG (default shot.png)
+  --set '<id>:{...}'    apply window.__app.setParams(id, obj) — repeatable, one
+                        per part
+  --view <preset>       iso | front | back | left | right | top | bottom
+  --config <file>       load a saved config JSON before rendering
+  --dump <file>         write getState() + report() JSON to this file
+  --part <id>           hide all other parts; camera re-fits to this part only
+  --width <n>           viewport width (default 800)
+  --height <n>          viewport height (default 600)
+  --wait <ms>           extra settle time after build before capturing (default 700)
+```
 
 ## Deeper customisation
 
@@ -271,5 +346,6 @@ invariant: keep `window.__app`.
 ## Config format
 
 Saved configs are JSON: `{ _app:'cadabra', _v:1, state, view:{vis,styles},
-printMat, explode }`. The runtime also imports the legacy `crystal_designer
-{p,b,v}` format and bare param objects for part 0.
+explode }`. Per-part material selection lives inside `state[partId].material`
+like any other param — no separate top-level field. The runtime also imports the
+legacy `crystal_designer {p,b,v}` format and bare param objects for part 0.

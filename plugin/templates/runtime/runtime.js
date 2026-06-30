@@ -104,23 +104,34 @@ function boot(libs){
   const MATERIALS = MODEL.MATERIALS || { pla:{rho:1.24,price:22}, petg:{rho:1.27,price:25},
                                          resin:{rho:1.10,price:40}, abs:{rho:1.04,price:24} };
 
+  // part.materials:string[] (keys into MATERIALS) is sugar for a per-part material
+  // picker: it's prepended as a synthetic ChoiceParam so it rides the existing
+  // param state/save-load/UI machinery for free — no separate global needed.
+  function materialLabel(key){ const m=MATERIALS[key]; if(!m) return key;
+    return key.toUpperCase()+' · '+m.rho+' g/cm³ · $'+m.price+'/kg'; }
+  function partParamsWithMaterial(part){
+    if(!part.materials||!part.materials.length) return part.params;
+    return [{ key:'material', label:'Material', type:'choice', group:'Material',
+      options:part.materials.map(k=>[k,materialLabel(k)]), default:part.materials[0] }, ...part.params];
+  }
+
   /* ============================================================ state ========= */
   const LS_KEY='cadabra_'+(MODEL.meta&&MODEL.meta.name?MODEL.meta.name.replace(/\W+/g,'_'):'app')+'_v1';
   const state={};                  // state[partId] = { key: value }
   const view={ vis:{}, styles:{}, collapsed:{}, active:SCHEMA[0].id };
-  let printMat='pla', explode=0;
+  let explode=0;
   function initState(){
     for(const part of SCHEMA){
-      state[part.id]={}; for(const d of part.params) state[part.id][d.key]=d.default;
+      state[part.id]={}; for(const d of partParamsWithMaterial(part)) state[part.id][d.key]=d.default;
       view.vis[part.id]=true; view.styles[part.id]=part.render.default; view.collapsed[part.id]=false;
     }
   }
-  function saveState(){ try{ localStorage.setItem(LS_KEY,JSON.stringify({state,view,printMat,explode})); }catch(e){} }
+  function saveState(){ try{ localStorage.setItem(LS_KEY,JSON.stringify({state,view,explode})); }catch(e){} }
   function loadState(){ try{ const s=localStorage.getItem(LS_KEY); if(!s) return; const o=JSON.parse(s);
     for(const part of SCHEMA){ if(o.state&&o.state[part.id]) Object.assign(state[part.id],o.state[part.id]); }
     if(o.view){ Object.assign(view.vis,o.view.vis||{}); Object.assign(view.styles,o.view.styles||{});
       Object.assign(view.collapsed,o.view.collapsed||{}); }
-    if(o.printMat) printMat=o.printMat; if(typeof o.explode==='number') explode=o.explode;
+    if(typeof o.explode==='number') explode=o.explode;
   } catch(e){} }
   const orderedParts=()=>{           // topological-ish: deps before dependents
     const done=new Set(), out=[]; let guard=0;
@@ -340,7 +351,13 @@ function boot(libs){
     controls.update(); renderer.render(scene,camera); renderGizmo(); }
 
   /* ============================================================ rebuild ======= */
-  function buildCtx(){ return { printMat, MATERIALS }; }
+  function buildCtx(){ return { MATERIALS }; }
+  // Slider debounce exists to stop the expensive WASM `kernel` engine from
+  // re-solving on every mouse-move pixel. `direct` engines are plain JS vertex
+  // math — a full rebuild is sub-millisecond — so schemas with no kernel parts
+  // skip the wait entirely and rebuild on every input event for true live feedback.
+  const HAS_KERNEL_PARTS = SCHEMA.some(p=>p.engine==='kernel');
+  const SLIDER_DEBOUNCE_MS = HAS_KERNEL_PARTS ? 200 : 0;
   let _rebuildSeq=0, _solveCount=0, _didFirstFit=false, _debTimer;
   const _paramHashes={}, _kernelOuts={};
   async function rebuild(){
@@ -388,13 +405,27 @@ function boot(libs){
     if(window.__app){ window.__app.solveCount=_solveCount; window.__app.solving=false; }
   }
   function setBadge(txt){ const b=document.getElementById('badge'); if(b) b.textContent=txt||(MODEL.meta&&MODEL.meta.name?MODEL.meta.name:'ready'); }
+  // metrics() is required (arbitrary computed quantities for the part's card).
+  // cost() is optional — only parts where fabrication cost is meaningful define
+  // it; when present, its value is auto-appended as a row here (single source of
+  // truth, no manual duplication in metrics()) and rolled into the assembly BOM.
+  function partEstimate(part, out, params, ctx){
+    const rows=(part.metrics(out,params,ctx)||[]).slice();
+    let cost;
+    if(typeof part.cost==='function'){
+      const c=part.cost(out,params,ctx);
+      if(c!=null){ const o=(typeof c==='object')?c:{value:c}; cost=o.value;
+        rows.push([o.label||'Cost', '$'+o.value.toFixed(2)]); }
+    }
+    return { rows, cost };
+  }
   function updateEstimates(outs){
     const ctx=buildCtx();
     let totalCost=0; const costRows=[];
-    for(const part of SCHEMA){ const e=part.estimate(outs[part.id], state[part.id], ctx);
+    for(const part of SCHEMA){ const e=partEstimate(part, outs[part.id], state[part.id], ctx);
       const box=document.getElementById('est_'+part.id);
       if(box) box.innerHTML=e.rows.map(r=>`<div class="row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
-      totalCost+=e.cost||0; costRows.push(`${part.name} $${(e.cost||0).toFixed(2)}`); }
+      if(e.cost!=null){ totalCost+=e.cost; costRows.push(`${part.name} $${e.cost.toFixed(2)}`); } }
     let h=0;
     for(const part of SCHEMA){ const out=outs[part.id]; if(!out) continue;
       const dz=part.transform?part.transform(state[part.id],ctx).z:0;
@@ -403,6 +434,8 @@ function boot(libs){
     document.getElementById('aParts').textContent=SCHEMA.length;
     document.getElementById('aH').textContent=Math.round(h)+' mm';
     document.getElementById('aFP').textContent=fpPart?Math.round(outs[fpPart.id].footprint)+' mm':'—';
+    const costRow=document.getElementById('aCostRow');
+    if(costRow) costRow.hidden=(costRows.length===0);
     document.getElementById('aCost').textContent='$'+totalCost.toFixed(2);
     document.getElementById('aCost').title=costRows.join('  ·  ');
   }
@@ -419,10 +452,14 @@ function boot(libs){
     num.step=d.step; if(d.hardMin!=null) num.min=d.hardMin; if(d.hardMax!=null) num.max=d.hardMax;
     const set=v=>{ state[partId][d.key]=v; rng.value=Math.min(d.max,Math.max(d.min,v)); num.value=fmtVal(v,d.step); };
     set(state[partId][d.key]);
-    rng.addEventListener('input',()=>{ set(parseFloat(rng.value)); clearTimeout(_debTimer); _debTimer=setTimeout(rebuild,200); });
+    rng.addEventListener('input',()=>{ set(parseFloat(rng.value)); scheduleRebuild(); });
     num.addEventListener('input',()=>{ const v=parseFloat(num.value); if(!isNaN(v)){ state[partId][d.key]=v;
-      rng.value=Math.min(d.max,Math.max(d.min,v)); clearTimeout(_debTimer); _debTimer=setTimeout(rebuild,200); } });
+      rng.value=Math.min(d.max,Math.max(d.min,v)); scheduleRebuild(); } });
     return row;
+  }
+  function scheduleRebuild(){
+    clearTimeout(_debTimer);
+    if(SLIDER_DEBOUNCE_MS>0) _debTimer=setTimeout(rebuild,SLIDER_DEBOUNCE_MS); else rebuild();
   }
   function makeChoice(partId,d){
     const row=document.createElement('div'); row.className='prow';
@@ -449,7 +486,7 @@ function boot(libs){
       const body=document.createElement('div'); body.className='card-b'+(view.collapsed[part.id]?' collapsed':'');
 
       let curGroup=null, first=true;
-      for(const d of part.params){
+      for(const d of partParamsWithMaterial(part)){
         if(d.group && d.group!==curGroup){ curGroup=d.group;
           const g=document.createElement('div'); g.className='grp'+(first?' first':''); g.textContent=d.group; body.appendChild(g); }
         first=false;
@@ -545,7 +582,7 @@ function boot(libs){
       const out=lastOuts[part.id]; if(!out) continue;
       hasAny=true;
       const spec=lastExportSpecs[part.id]||{ mode:'solid', pieces:[] };
-      const e=part.estimate(out,state[part.id],ctx);
+      const e=partEstimate(part,out,state[part.id],ctx);
 
       const sec=document.createElement('div'); sec.className='exp-section';
 
@@ -556,7 +593,8 @@ function boot(libs){
         const totalQty=spec.pieces.reduce((a,p)=>a+p.qty,0);
         const areaRow=e.rows.find(r=>String(r[0]).toLowerCase().includes('area'));
         const costRow=e.rows.find(r=>String(r[0]).toLowerCase().includes('cost')||String(r[0]).toLowerCase().includes('est'));
-        const parts=[totalQty+' panels', areaRow?areaRow[1]:null, costRow?String(costRow[1]):('$'+(e.cost||0).toFixed(2))].filter(Boolean);
+        const parts=[totalQty+' panels', areaRow?areaRow[1]:null,
+          costRow?String(costRow[1]):(e.cost!=null?'$'+e.cost.toFixed(2):null)].filter(Boolean);
         sumHtml=`<span class="exp-sum">${parts.join(' · ')}</span>`;
       }
       head.innerHTML=`<span class="nm">${part.name}</span><span class="fab">${part.fab}</span><span class="sp"></span>${sumHtml}`;
@@ -662,23 +700,22 @@ function boot(libs){
   }
 
   /* ============================================================ config I/O ==== */
-  const knownKeys=part=>new Set(part.params.map(d=>d.key));
+  const knownKeys=part=>new Set(partParamsWithMaterial(part).map(d=>d.key));
   function filterKeys(part,obj){ const k=knownKeys(part), o={}; for(const key in obj) if(k.has(key)) o[key]=obj[key]; return o; }
   function refreshAfterLoad(){
-    document.getElementById('printMat').value=printMat;
     document.getElementById('explode').value=explode;
     document.getElementById('vEx').textContent=Math.round(explode);
     buildPartCards(); rebuild(); fitCamera();
   }
   function exportConfig(){
-    const out={ _app:'cadabra', _v:1, state, view:{vis:view.vis,styles:view.styles}, printMat, explode };
+    const out={ _app:'cadabra', _v:1, state, view:{vis:view.vis,styles:view.styles}, explode };
     dl('assembly_design.json', JSON.stringify(out,null,2), 'application/json');
   }
   function importConfig(obj){
     if(obj.state){
       for(const part of SCHEMA){ if(obj.state[part.id]) Object.assign(state[part.id], filterKeys(part,obj.state[part.id])); }
       if(obj.view){ Object.assign(view.vis,obj.view.vis||{}); Object.assign(view.styles,obj.view.styles||{}); }
-      if(obj.printMat) printMat=obj.printMat; if(typeof obj.explode==='number') explode=obj.explode;
+      if(typeof obj.explode==='number') explode=obj.explode;
     } else if(obj.p||obj.b){                          // legacy crystal_designer { p, b, v }
       if(obj.p && state.crystal) Object.assign(state.crystal, filterKeys(SCHEMA[0],obj.p));
       if(obj.b && state.base)    Object.assign(state.base,    filterKeys(SCHEMA[1]||SCHEMA[0],obj.b));
@@ -697,12 +734,11 @@ function boot(libs){
   });
 
   /* ============================================================ controls ====== */
-  document.getElementById('printMat').addEventListener('change',e=>{ printMat=e.target.value; updateEstimates(lastOuts); saveState(); });
   document.getElementById('explode').addEventListener('input',e=>{ explode=parseFloat(e.target.value);
     document.getElementById('vEx').textContent=Math.round(explode); rebuild(); });
   document.getElementById('resetAll').addEventListener('click',()=>{
-    initState(); printMat='pla'; explode=0;
-    document.getElementById('printMat').value='pla'; document.getElementById('explode').value=0;
+    initState(); explode=0;
+    document.getElementById('explode').value=0;
     document.getElementById('vEx').textContent='0';
     buildPartCards(); rebuild(); fitCamera(); });
   const reloadBtn=document.getElementById('reload');
@@ -735,7 +771,7 @@ function boot(libs){
     for(const part of SCHEMA){
       const out=lastOuts[part.id]; if(!out) continue;
       const dz=part.transform?part.transform(state[part.id],ctx).z:0;
-      const e=part.estimate(out,state[part.id],ctx);
+      const e=partEstimate(part,out,state[part.id],ctx);
       const published={}; for(const k of ['vol','volume','footprint','cavityW','cavityH','fits','seatZ','maxEdge','panelThk'])
         if(out[k]!=null) published[k]=out[k];
       const triCount=out.geometry&&out.geometry.index?out.geometry.index.count/3:null;
@@ -750,13 +786,13 @@ function boot(libs){
     report.assembly={
       parts:SCHEMA.length, height:document.getElementById('aH').textContent,
       footprint:document.getElementById('aFP').textContent,
-      bom:document.getElementById('aCost').textContent, printMat,
+      bom:document.getElementById('aCost').textContent,
     };
     return report;
   }
   window.__app={
     setParams(partId,obj){ Object.assign(state[partId],obj); buildPartCards(); rebuild(); return true; },
-    getState(){ return JSON.parse(JSON.stringify({state,view,printMat,explode})); },
+    getState(){ return JSON.parse(JSON.stringify({state,view,explode})); },
     loadConfig(obj){ importConfig(obj); return true; },
     setVisible(partId,v){ view.vis[partId]=v; applyVisAndStyle(); recenter(); },
     setStyle(partId,s){ view.styles[partId]=s; applyVisAndStyle(); },
@@ -776,12 +812,11 @@ function boot(libs){
   const appSub=document.getElementById('appSub');
   if(appSub && MODEL.meta && MODEL.meta.name) appSub.textContent=MODEL.meta.name+' · edit model.js, then Reload.';
   initState(); loadState();
-  document.getElementById('printMat').value=printMat;
   document.getElementById('explode').value=explode; document.getElementById('vEx').textContent=Math.round(explode);
   buildPartCards(); resize(); fitCamera(); frame();
   if(SCHEMA.some(p=>p.engine==='kernel')) window.CADABRA_KERNEL.ready().catch(()=>{});
   rebuild();
 }
 
-window.CADABRA = { boot, version: "1.0.1" };
+window.CADABRA = { boot, version: "2.0.0" };
 })();

@@ -92,7 +92,7 @@ export class ProjectDriver {
   async saveConfig(name) {
     await this.ensure();
     const st = await this.page.evaluate(() => window.__app.getState());
-    const cfg = { _app: "cadabra", _v: 1, state: st.state, view: { vis: st.view.vis, styles: st.view.styles }, printMat: st.printMat, explode: st.explode };
+    const cfg = { _app: "cadabra", _v: 1, state: st.state, view: { vis: st.view.vis, styles: st.view.styles }, explode: st.explode };
     const dir = join(this.projectDir, "config");
     mkdirSync(dir, { recursive: true });
     const p = join(dir, (name.endsWith(".json") ? name : name + ".json"));

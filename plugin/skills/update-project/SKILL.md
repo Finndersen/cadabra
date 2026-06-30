@@ -69,7 +69,13 @@ before the runtime files are copied. Follow these steps exactly:
 
 ## If verify fails
 
-Check the browser console output reported by verify.mjs. Common causes:
+Check the browser console output reported by verify.mjs — if it fails with a
+bare timeout rather than a clear error, re-run with `--verbose` to stream all
+console/pageerror messages live (catches kernel worker build errors that
+otherwise only surface after the gate already timed out). `verify.mjs` also
+takes `--screenshot-out <file>` and `--json` — see
+`${CLAUDE_PLUGIN_ROOT}/skills/setup-new-project/reference.md#cli-scripts-reference`
+for the full flag list. Common causes:
 - A field rename in model.js was missed — re-read the migration notes.
 - A `build()` return shape changed — check the Part object contract in
   `${CLAUDE_PLUGIN_ROOT}/skills/setup-new-project/reference.md`.

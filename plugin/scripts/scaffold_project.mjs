@@ -179,7 +179,11 @@ Note where reference files live (e.g. exports/refs/), and key takeaways._
 ## 3. Fabrication
 - **Default process:** ${fab}
 - _Per-part process (3D print FDM/resin · laser/CNC sheet · milling · carpentry):_
-- _Material(s) — density (g/cm³), price ($/kg or sheet), min wall / kerf / clearance:_
+- _Material(s) — density (g/cm³), price ($/kg or sheet), min wall / kerf / clearance.
+  Note which parts (if any) should expose a runtime material picker (\`materials:[]\`):_
+- _Metrics — computed quantities to show per part (cost, weight, board-feet,
+  clearances...). Cost is optional per part — only define \`cost()\` where it's
+  actually meaningful:_
 - _Export needs — file formats required (DXF per panel shape? SVG nesting? STL per segment? STEP?):_
 - _Sheet / print-bed size constraints (largest panel that fits, bed dimensions):_
 

@@ -42,23 +42,32 @@ Then run with `--config <path>` so the headless browser loads those exact values
 node ${CLAUDE_PLUGIN_ROOT}/scripts/screenshot.mjs \
   --html ./index.html \
   --config <path/to/saved-config.json> \
-  --out review.png \
-  --dump review_data.json \
+  --out /tmp/cadabra_shot.png \
+  --dump /tmp/cadabra_review.json \
   --view iso
 ```
 
+Then `Read /tmp/cadabra_shot.png` to view the image.
+
 If the user has not configured anything (or wants to review defaults), omit
 `--config` and the script will use the model's default parameter values.
+`screenshot.mjs` also takes `--set`, `--part`, `--width`/`--height`, and
+`--wait` — see
+`${CLAUDE_PLUGIN_ROOT}/skills/setup-new-project/reference.md#cli-scripts-reference`
+for the full flag list.
 
 Read `review_data.json`. It contains:
 
-- **`state.state`** — current param value per part (what the user has configured)
-- **`state.printMat`** — current print material selection (`pla` / `petg` / `abs` / `resin`)
+- **`state.state`** — current param value per part (what the user has configured),
+  including per-part material selection at `state.state[partId].material` if
+  that part declares a `materials:[]` picker
 - **`report.parts[id]`** — per part:
   - `bbox.size` — `[W, D, H]` in mm
   - `published` — values the model explicitly exports: `vol` (mm³), `panelThk`,
     `maxEdge`, `cavityW`, `cavityH`, `footprint`, `fits`, etc.
-  - `estimate` — cost rows and total cost
+  - `estimate` — `{ rows, cost }`: `rows` are the part's metrics (computed
+    quantities, not just cost); `cost` is the optional per-part fabrication
+    cost, present only if the part defines `cost()`
   - `engine` (`direct` or `kernel`), `fab`
 - **`report.assembly`** — overall height, footprint, BOM total, part count
 
@@ -85,7 +94,7 @@ Material densities for weight calculation:
 | **Screw/bolt holes: nominal + 0.2 mm clearance** | Look for hole diameter params; verify they're not exact nominal. |
 | **Part fits print bed** | Compare `bbox.size[0]` and `bbox.size[1]` against bed limits from PROJECT.md. |
 | **Hollow parts have drain holes ≥ 2 mm** | Check if any enclosed volumes exist and whether drainage is modelled. |
-| **Weight estimate reasonable** | `vol` (mm³) × density / 1000 = grams. Cross-check with estimate cost rows. |
+| **Weight estimate reasonable** | `vol` (mm³) × density / 1000 = grams. Cross-check with the part's metrics/cost data. |
 
 ---
 

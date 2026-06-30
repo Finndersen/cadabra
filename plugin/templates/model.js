@@ -26,11 +26,10 @@
      the outward normal faces away from the model interior.
 
    BuildCtx
-     { [partId]: buildOut, printMat:string,
-       MATERIALS:{ [key]:{ rho:number, price:number } } }
+     { [partId]: buildOut, MATERIALS:{ [key]:{ rho:number, price:number } } }
      Shared build context. ctx[id] = the build output of each already-built
-     dependency (declared in dependsOn[]). Read in later parts and in estimate().
-     ctx.printMat is the user-selected material key. ctx.MATERIALS is the table.
+     dependency (declared in dependsOn[]). Read in later parts and in
+     metrics()/cost(). ctx.MATERIALS is the shared density/price table.
 
    ─────────────────────────────────────────────────────────────────────────────
    PART METHOD SIGNATURES
@@ -42,7 +41,7 @@
                  volume:number, blobSTL:Blob, blobSTEP:Blob }> engine:'kernel'
 
      direct: published fields (e.g. vol, seatZ, section) are merged into
-       ctx[partId] so later parts and estimate() can read them.
+       ctx[partId] so later parts and metrics()/cost() can read them.
        Optional renderFaces/edgeFaces: thick-panel display (see examples/crystal).
      kernel:   fn passed to k.run() is serialised (fn.toString()) and eval'd in
        the worker — it must be self-contained, no closures over model.js scope.
@@ -51,9 +50,26 @@
      → { z:number }
      Z offset of this part in the assembly view.
 
-   estimate(out:buildOut, params:Object, ctx:BuildCtx)
-     → { cost:number, rows:[[label:string, value:string|number], ...] }
-     out is the object returned by build(). cost feeds the assembly BOM total.
+   materials?: string[]                                        OPTIONAL
+     Keys into MODEL.MATERIALS this part can be made from. If present, the
+     runtime auto-renders a per-part "Material" picker (it's sugar for a
+     synthetic ChoiceParam, so the selection lives at params.material like any
+     other param — no separate global, persists/saves like everything else).
+
+   metrics(out:buildOut, params:Object, ctx:BuildCtx)
+     → [[label:string, value:string|number], ...]
+     REQUIRED. Arbitrary computed quantities shown in the part's live card —
+     not just cost: lengths, clearances, counts, fit checks, anything useful.
+
+   cost(out:buildOut, params:Object, ctx:BuildCtx)                OPTIONAL
+     → number | { value:number, label?:string } | null | undefined
+     Only define this if the part's fabrication cost is meaningful/knowable.
+     Omit entirely to opt the part out of the assembly "Bill of materials" row
+     (which itself hides if NO part defines cost()). Return null/undefined to
+     skip a given rebuild (e.g. cost depends on a param not yet set). When
+     defined, the value is auto-appended as a row to the part's metrics card
+     (labelled "Cost", or your custom label) — compute it once here, don't
+     also hand-write it into metrics().
 
    exportPieces?(out:buildOut, params:Object, ctx:BuildCtx)        OPTIONAL
      → { mode:'sheet',
@@ -125,16 +141,24 @@ function buildBox(p) {
   return { faces, vol, footprint: Math.max(p.w, p.d) };
 }
 
-function estimatePrinted(out, params, ctx) {
-  const m = (ctx.MATERIALS || MATERIALS)[ctx.printMat] || MATERIALS.pla;
+function materialFor(params, ctx) {
+  return (ctx.MATERIALS || MATERIALS)[params.material] || MATERIALS.pla;
+}
+
+function partMetrics(out, params, ctx) {
+  const m = materialFor(params, ctx);
   const cm3 = out.vol / 1000;
   const grams = cm3 * m.rho;
-  const cost = grams / 1000 * m.price;
-  return { cost, rows: [
+  return [
     ["Volume (solid)", cm3.toFixed(1) + " cm³"],
     ["Mass",           grams.toFixed(0) + " g"],
-    ["Filament cost",  "$" + cost.toFixed(2)],
-  ]};
+  ];
+}
+
+function partCost(out, params, ctx) {
+  const m = materialFor(params, ctx);
+  const grams = (out.vol / 1000) * m.rho;
+  return { value: grams / 1000 * m.price, label: "Filament cost" };
 }
 
 /* ---- MODEL ---- */
@@ -150,6 +174,7 @@ window.MODEL = {
       dependsOn: [],
       render:    { styles: ["pla", "clay", "metal", "wire"], default: "pla" },
       exports:   ["stl"],      // 'stl' | 'dxf' | 'svg' | 'step'
+      materials: ["pla", "petg", "abs"],   // per-part material picker (sugar for a ChoiceParam)
       params: [
         { key:"w", label:"Width",  unit:"mm", min:10, max:300, step:1, default:80, group:"Size" },
         { key:"d", label:"Depth",  unit:"mm", min:10, max:300, step:1, default:60 },
@@ -157,7 +182,8 @@ window.MODEL = {
       ],
       build:     (p, ctx) => buildBox(p),
       transform: (p, ctx) => ({ z: 0 }),
-      estimate:  (out, p, ctx) => estimatePrinted(out, p, ctx),
+      metrics:   (out, p, ctx) => partMetrics(out, p, ctx),
+      cost:      (out, p, ctx) => partCost(out, p, ctx),
     },
   ],
 };

@@ -70,18 +70,22 @@ async function buildCase(p, ctx) {
   return out;   // { geometry, edges, volume, blobSTL, blobSTEP }
 }
 
-function caseEstimate(out, p, ctx) {
-  const mats = ctx.MATERIALS || MATERIALS, m = mats[ctx.printMat] || mats.pla;
+function caseMetrics(out, p, ctx) {
+  const mats = ctx.MATERIALS || MATERIALS, m = mats[p.material] || mats.pla;
   const cm3 = (out.volume || 0) / 1000;         // mm³ → cm³ (this is the WALL volume — it's shelled)
   const grams = cm3 * m.rho;
-  const cost = grams / 1000 * m.price;
-  return { cost, rows: [
+  return [
     ["Wall volume", cm3.toFixed(1) + " cm³"],
     ["Mass", grams.toFixed(0) + " g"],
-    ["Filament cost", "$" + cost.toFixed(2)],
     ["Outer size", `${p.w} × ${p.h} × ${p.depth} mm`],
     ["Wall", p.wall + " mm"],
-  ] };
+  ];
+}
+
+function caseCost(out, p, ctx) {
+  const mats = ctx.MATERIALS || MATERIALS, m = mats[p.material] || mats.pla;
+  const grams = ((out.volume || 0) / 1000) * m.rho;
+  return { value: grams / 1000 * m.price, label: "Filament cost" };
 }
 
 /* ============================================================ MODEL ========= */
@@ -97,6 +101,7 @@ window.MODEL = {
       dependsOn: [],
       render: { styles: ["pla", "clay", "metal", "wire"], default: "pla" },
       exports: ["step", "stl"],      // kernel parts emit watertight STEP + STL
+      materials: ["pla", "petg", "abs", "resin"],
       params: [
         { key: "w",       label: "Width",          unit: "mm", min: 50,  max: 100, step: 0.5,  default: 72,  group: "Body" },
         { key: "h",       label: "Height",         unit: "mm", min: 100, max: 180, step: 0.5,  default: 146 },
@@ -112,7 +117,8 @@ window.MODEL = {
       ],
       build: (p, ctx) => buildCase(p, ctx),
       transform: (p, ctx) => ({ z: 0 }),
-      estimate: (out, p, ctx) => caseEstimate(out, p, ctx),
+      metrics: (out, p, ctx) => caseMetrics(out, p, ctx),
+      cost: (out, p, ctx) => caseCost(out, p, ctx),
     },
   ],
 };

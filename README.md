@@ -1,50 +1,14 @@
 # Cadabra
 
-**CAD + abracadabra.** A Claude Code plugin that conjures a **bespoke, live,
-parametric CAD app per project**. You describe a physical thing you want to make;
-the agent interviews you, captures the design into a living `PROJECT.md`,
-scaffolds a self-contained 3D viewer, writes the geometry as code, and iterates
-with you. The result is a folder you can open by **double-clicking an HTML file** —
-no server, no build step — with sliders to tweak dimensions and buttons to export
-fabrication files.
-
-It generalises the ad-hoc "Claude + a hand-built interactive HTML modeller"
-workflow into a repeatable skill, and extends the
-[interview → build → self-review → iterate](https://pub.towardsai.net/i-taught-claude-to-design-3d-printable-parts-heres-how-675f644af78a)
-loop with a **live user-controlled viewer**, a **two-tier geometry engine**
-(instant analytic math + an in-browser CAD kernel), and **fabrication-aware
-outputs** (3D print, laser/CNC cut, milling, carpentry).
-
----
-
-## What it generates
-
-A scaffolded project is a small, self-contained directory:
-
-```
-<project>/
-  index.html     # the app shell — double-click to open (file://, no server)
-  runtime.js     # the canonical engine (project-owned, editable): viewer, UI,
-                 #   build pipeline, estimates, exports, config I/O, agent hook
-  theme.css      # design tokens (dark CAD palette)
-  kernel.js      # kernel tier (replicad/OpenCASCADE WASM in a Blob-URL Web Worker;
-                 #   first-class, lazy — loads only when a kernel part is present)
-  model.js       # ← AGENT-AUTHORED: the parametric design (params + geometry)
-  PROJECT.md     # the LIVING design document (durable across sessions)
-  config/        # named design presets (JSON)
-  exports/       # generated STL / DXF / SVG / STEP + reference renders
-```
-
-You (and the agent) edit **`model.js`** in the common case — it declares each
-part's parameters and builds its geometry. The viewer, controls, estimates, and
-exports come from the schema automatically.
-
-**No server by default.** The runtime loads three.js from a CDN via one inline ES
-module, then runs `model.js`/`runtime.js` as classic scripts attaching globals —
-which is what lets it work straight from `file://`. Even the heavy kernel tier
-(replicad / OpenCASCADE WASM) loads from the CDN and runs in a Blob-URL Web Worker,
-so a server is genuinely not required. (If a locked-down browser ever blocks
-`file://`, `npx serve .` is a fallback — nothing depends on it.)
+**CAD + abracadabra.** A Claude Code plugin that conjures a **bespoke, interactive
+CAD interface per project**. You describe a physical thing you want to make; the agent
+interviews you, captures the design into a living `PROJECT.md`, and writes the geometry
+as code — giving you a live 3D viewer with design-specific parameter sliders to tweak
+dimensions and fabrication-aware export options (STL, DXF, SVG, STEP). It generalises
+the [interview → build → self-review → iterate](https://pub.towardsai.net/i-taught-claude-to-design-3d-printable-parts-heres-how-675f644af78a)
+workflow into a repeatable skill with a **two-tier geometry engine** (instant analytic
+math + an in-browser OpenCASCADE kernel) supporting 3D print, laser/CNC cut, milling,
+and carpentry — no server or build step required.
 
 ---
 
@@ -52,22 +16,12 @@ so a server is genuinely not required. (If a locked-down browser ever blocks
 
 ```shell
 # Add this repo as a marketplace, then install the plugin:
-/plugin marketplace add <path-or-git-url-to-this-repo>
+/plugin marketplace add https://github.com/Finndersen/cadabra
 /plugin install cadabra@cadabra
 ```
 
 The marketplace (`.claude-plugin/marketplace.json`) points at `./plugin`, whose
 manifest is `plugin/.claude-plugin/plugin.json`.
-
-## Skills
-
-The plugin ships three skills:
-
-| Skill | Trigger | What it does |
-|---|---|---|
-| **`setup-new-project`** | "Design a X", "Model a bracket", "Help me laser-cut..." | Full new-project workflow: interview → PROJECT.md → scaffold → author model.js → self-review → iterate |
-| **`update-project`** | Runtime version mismatch detected in a project session | Upgrades a project's runtime files; handles same-major (copy files) and major-version (read migration notes, update model.js, then copy) paths |
-| **`review-design`** | "Review the design", "Is this printable?", "Check for problems" | Reviews a Cadabra project for fabrication issues, constraint violations, and export readiness |
 
 ## Invoke
 
@@ -92,41 +46,46 @@ The **`setup-new-project`** skill triggers and runs the workflow:
 
 ---
 
-## How the pieces fit
+## What it generates
+
+A scaffolded project is a small, self-contained directory:
 
 ```
-plugin/
-  .claude-plugin/plugin.json      # plugin manifest
-  skills/
-    setup-new-project/
-      SKILL.md                    # new-project workflow: gather → PROJECT.md → scaffold → model.js → iterate
-      reference.md                # the model.js contract + analytic/kernel recipes
-    update-project/
-      SKILL.md                    # runtime upgrade workflow (same-major and breaking-major paths)
-    review-design/
-      SKILL.md                    # design review: fabrication issues, constraints, export readiness
-  templates/runtime/              # the canonical runtime, copied into each project
-    runtime.js  theme.css  kernel.js
-  templates/                      # top-level template files (index.html + model.js stub)
-    index.html  model.js
-  examples/crystal/model.js        # ANALYTIC example: crystal + printed base
-  examples/phone_case/model.js    # KERNEL example: fillet + shell + boolean, STEP/STL
-  scripts/
-    scaffold_project.mjs          # stamp out a new project (no agent tokens on boilerplate)
-    screenshot.mjs                # on-demand PNG via Playwright over file:// (occasional)
-    upgrade_runtime.mjs           # runtime upgrade helper (check/apply)
-    verify.mjs                    # verification gates over file://
-.claude-plugin/marketplace.json   # marketplace catalog → ./plugin
+<project>/
+  index.html       # the app shell — open in browser (file://, no server)
+  model.js         # ← AGENT-AUTHORED: the parametric design (params + geometry)
+  PROJECT.md       # the living design document (durable across sessions)
+  runtime/
+    runtime.js     # the engine (project-owned): viewer, UI, build pipeline, exports
+    theme.css      # design tokens (dark CAD palette)
+    kernel.js      # OpenCASCADE WASM kernel tier (lazy — loads only when needed)
+  config/          # named design presets (JSON)
+  exports/         # generated STL / DXF / SVG / STEP + reference renders
 ```
 
-- **The template `model.js` is a generic stub** (a tiny example box). The plugin
-  ships **no project-specific configuration**. The examples contain only `model.js`
-  — they are reference implementations of the model contract, not full projects.
-- **The runtime is project-owned**: each scaffold gets its own copy, so a project
-  can diverge as far as it needs. The one invariant preserved through any rework
-  is the `window.__app` agent hook.
+You (and the agent) edit **`model.js`** in the common case — it declares each
+part's parameters and builds its geometry. The viewer, controls, estimates, and
+exports come from the schema automatically. The runtime is project-owned: each
+scaffold gets its own copy, so a project can diverge as far as it needs.
+
+**No server by default.** The runtime loads three.js from a CDN via one inline ES
+module, then runs `model.js`/`runtime.js` as classic scripts attaching globals —
+which is what lets it work straight from `file://`. Even the heavy kernel tier
+(replicad / OpenCASCADE WASM) loads from the CDN and runs in a Blob-URL Web Worker,
+so a server is genuinely not required. (If a locked-down browser ever blocks
+`file://`, `npx serve .` is a fallback — nothing depends on it.)
 
 ---
+
+## Skills
+
+The plugin ships three skills:
+
+| Skill | Trigger | What it does |
+|---|---|---|
+| **`setup-new-project`** | "Design a X", "Model a bracket", "Help me laser-cut..." | Full new-project workflow: interview → PROJECT.md → scaffold → author model.js → self-review → iterate |
+| **`update-project`** | Runtime version mismatch detected in a project session | Upgrades a project's runtime files; handles same-major (copy files) and major-version (read migration notes, update model.js, then copy) paths |
+| **`review-design`** | "Review the design", "Is this printable?", "Check for problems" | Reviews a Cadabra project for fabrication issues, constraint violations, and export readiness |
 
 ## Two geometry tiers (both first-class)
 
@@ -156,18 +115,27 @@ npm install                       # playwright
 npx playwright install chromium   # once
 
 # verify the generic stub template renders over file:// (no server):
-node scripts/verify.mjs
+node scripts/scaffold_project.mjs --dir /tmp/stub --name "Stub" --fab printed
+node scripts/verify.mjs /tmp/stub/index.html
 
-# verify the analytic crystal example (scaffolds a temp project, overlays model.js):
-node scripts/verify.mjs examples/crystal/model.js
+# verify the analytic crystal example (scaffold a temp project, overlay model.js):
+node scripts/scaffold_project.mjs --dir /tmp/crystal --name "Crystal" --fab cut-sheet
+cp examples/crystal/model.js /tmp/crystal/model.js
+node scripts/verify.mjs /tmp/crystal/index.html
 
 # verify the kernel phone-case example (boots replicad WASM in a worker over file://):
-node scripts/verify.mjs examples/phone_case/model.js
+node scripts/scaffold_project.mjs --dir /tmp/phone --name "Phone" --fab printed
+cp examples/phone_case/model.js /tmp/phone/model.js
+node scripts/verify.mjs /tmp/phone/index.html
 
 # scaffold + capture a screenshot:
 node scripts/scaffold_project.mjs --dir /tmp/demo --name "Demo" --fab printed
-node scripts/screenshot.mjs --html examples/crystal/index.html --out shot.png --view iso
+node scripts/screenshot.mjs --html /tmp/demo/index.html --out shot.png --view iso
 ```
+
+`verify.mjs` and `screenshot.mjs` take several more flags than shown above — see
+[`skills/setup-new-project/reference.md`](plugin/skills/setup-new-project/reference.md#cli-scripts-reference)
+for the full list.
 
 Every generated `index.html` must render without console errors, keep the
 `window.__app` hook, and round-trip a config save/load — `verify.mjs` checks all

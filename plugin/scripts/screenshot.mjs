@@ -17,7 +17,7 @@
         [--set '<partId>:{"H":1400}' ...]   apply window.__app.setParams
         [--view iso|front|back|left|right|top|bottom]
         [--config path.json]                 load a saved config first
-        [--width 1280] [--height 900]
+        [--width 800] [--height 600]         viewport size (defaults shown)
         [--wait 1200]                        extra settle ms after build
    Examples:
      node screenshot.mjs --html ../examples/crystal/index.html --out crystal.png
@@ -57,7 +57,7 @@ const HELP = `cadabra screenshot — render a project index.html to PNG (file://
   --config <file>    load a saved config JSON before rendering
   --dump <file>      write getState() + report() JSON to this file
   --part <id>        hide all other parts; camera re-fits to this part only
-  --width/--height   viewport size (default 1280x900)
+  --width/--height   viewport size (default 800x600)
   --wait <ms>        extra settle time after build (default 700)`;
 
 export async function capture(opts) {
