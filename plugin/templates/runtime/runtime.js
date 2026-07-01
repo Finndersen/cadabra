@@ -667,10 +667,23 @@ function boot(libs){
   }
 
   /* ============================================================ doExport ======= */
-  function doExport(part,fmt){
+  async function doExport(part,fmt){
     const out=lastOuts[part.id];
-    if(fmt==='step' && out.blobSTEP){ dl(part.id+'.step', out.blobSTEP()); return; }
-    if(fmt==='stl' && out.blobSTL){ dl(part.id+'.stl', out.blobSTL()); return; }
+    // blobSTEP/blobSTL round-trip to the kernel worker on demand (STL/STEP
+    // aren't generated on every solve — see kernel.js) — show that it's working
+    // rather than let the button sit there looking unresponsive.
+    if((fmt==='step' && out.blobSTEP) || (fmt==='stl' && out.blobSTL)){
+      setBadge('exporting '+fmt.toUpperCase()+'…');
+      try{
+        const blob = fmt==='step' ? await out.blobSTEP() : await out.blobSTL();
+        dl(part.id+'.'+fmt, blob);
+      }catch(err){
+        alert('Export failed: '+err.message);
+      }finally{
+        setBadge();
+      }
+      return;
+    }
     if(fmt==='stl'){ dl(part.id+'.stl', facesToSTL(out.faces, part.id)); return; }
     if(fmt==='dxf'){                         // one DXF per unique panel shape + cutlist (zip)
       const faces=out.faces, map=edgeMapper(faces), groups={}; let gi=0;
@@ -824,5 +837,5 @@ function boot(libs){
   rebuild();
 }
 
-window.CADABRA = { boot, version: "2.1.0" };
+window.CADABRA = { boot, version: "2.2.0" };
 })();

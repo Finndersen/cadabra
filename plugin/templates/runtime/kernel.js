@@ -26,7 +26,16 @@
    - The worker meshes via replicad's native shape.mesh()/meshEdges() (plain
      arrays — no replicad-threejs-helper, whose bare `three` import can't resolve
      inside a worker) and ships those arrays back; the main thread rebuilds THREE
-     BufferGeometries. STL + STEP come back as transferable ArrayBuffers.
+     BufferGeometries.
+   - STL/STEP are NOT generated on every solve — OCC's STEP writer in particular
+     is expensive, and most solves are just for the live preview, never exported.
+     The worker instead caches the solved `shape` (keyed by request id, bounded
+     LRU-ish eviction — see SHAPE_CACHE_LIMIT) and only writes STL/STEP when
+     out.blobSTL()/out.blobSTEP() is actually called (i.e. on export-button
+     click). Those calls round-trip to the worker again to regenerate from the
+     cached shape; if it's been evicted (many solves since, or the worker
+     restarted), they reject — the caller should nudge a param to rebuild, then
+     retry the export.
 
    USAGE (from your model.js — a kernel part: engine:'kernel', async build):
      async build(p, ctx) {
@@ -39,7 +48,8 @@
        return out;   // { geometry, edges, volume, blobSTL, blobSTEP }
      }
    The runtime renders { geometry, edges } directly (see renderPartMesh) and wires
-   blobSTL/blobSTEP into the part's export buttons.
+   blobSTL/blobSTEP (both () => Promise<Blob> — async, since they may trigger a
+   fresh worker round-trip) into the part's export buttons.
    ============================================================================ */
 (function () {
 "use strict";
@@ -92,9 +102,33 @@ function ensure(){
   return bootPromise;
 }
 
+// Solved shapes are kept around (keyed by the solve request's id) so an
+// export click can regenerate STL/STEP later without re-solving. FIFO
+// eviction bounds this — only recent solves are ever realistically exported.
+const _shapes = new Map();
+const SHAPE_CACHE_LIMIT = 16;
+function cacheShape(id, shape){
+  _shapes.set(id, shape);
+  if (_shapes.size > SHAPE_CACHE_LIMIT) _shapes.delete(_shapes.keys().next().value);
+}
+
 self.onmessage = async (e) => {
-  const { id, fnSource, params } = e.data || {};
+  const { id, fnSource, params, exportShapeId, format } = e.data || {};
   if (id == null) return;
+
+  if (exportShapeId != null) {                // on-demand export of a cached shape
+    try {
+      const shape = _shapes.get(exportShapeId);
+      if (!shape) throw new Error("shape no longer cached — nudge a param to rebuild, then retry export");
+      const blob = format === "stl" ? await shape.blobSTL() : await shape.blobSTEP();
+      const data = await blob.arrayBuffer();
+      self.postMessage({ id, ok: true, result: { data } }, [data]);
+    } catch (err) {
+      self.postMessage({ id, ok: false, error: String((err && (err.stack || err)) || err) });
+    }
+    return;
+  }
+
   try {
     await ensure();
     const fn = (0, eval)("(" + fnSource + ")");
@@ -104,25 +138,17 @@ self.onmessage = async (e) => {
     const ed = shape.meshEdges();
     const faces = { vertices: m.vertices, normals: m.normals, triangles: m.triangles };
     const lines = { lines: ed.lines };
-    // Each of these can legitimately fail on a valid shape (e.g. a non-manifold
-    // edge case blobSTEP chokes on) without the overall solve being wrong — don't
-    // let one swallow the whole result, but don't swallow the failure silently
-    // either. warnings rides back to the main thread, which is where they get
-    // logged (console.* inside a dedicated worker isn't reliably visible to a
-    // headless driver watching the page's console).
+    // measureVolume can legitimately fail on a valid shape without the overall
+    // solve being wrong — don't let it swallow the whole result, but don't
+    // swallow the failure silently either. warnings rides back to the main
+    // thread, which is where it gets logged (console.* inside a dedicated
+    // worker isn't reliably visible to a headless driver watching the page).
     const warnings = [];
     let volume = null;
     try { volume = replicad.measureVolume ? replicad.measureVolume(shape) : null; }
     catch (e) { warnings.push('measureVolume failed: ' + ((e && e.message) || e)); }
-    let stl = null, step = null;
-    try { stl = await shape.blobSTL().arrayBuffer(); }
-    catch (e) { warnings.push('blobSTL failed (STL export will be unavailable): ' + ((e && e.message) || e)); }
-    try { step = await shape.blobSTEP().arrayBuffer(); }
-    catch (e) { warnings.push('blobSTEP failed (STEP export will be unavailable): ' + ((e && e.message) || e)); }
-    const transfer = [];
-    if (stl) transfer.push(stl);
-    if (step) transfer.push(step);
-    self.postMessage({ id, ok: true, result: { faces, lines, volume, stl, step, warnings } }, transfer);
+    cacheShape(id, shape);
+    self.postMessage({ id, ok: true, result: { faces, lines, volume, warnings } });
   } catch (err) {
     self.postMessage({ id, ok: false, error: String((err && (err.stack || err)) || err) });
   }
@@ -164,6 +190,18 @@ function spawnWorker() {
   return w;
 }
 
+// Requests STL/STEP for a previously-solved (still-cached) shape from the
+// worker. Rejects if that shape has since been evicted from the worker's
+// cache — the caller (doExport in runtime.js) should surface that to the user.
+async function exportBlob(shapeId, format, mime) {
+  const id = ++_seq;
+  const result = await new Promise((resolve, reject) => {
+    _pending.set(id, { resolve, reject });
+    _worker.postMessage({ id, exportShapeId: shapeId, format });
+  });
+  return new Blob([result.data], { type: mime });
+}
+
 async function ready() {
   if (_readyPromise) return _readyPromise;
   _readyPromise = (async () => {
@@ -186,8 +224,10 @@ async function ready() {
         } else {
           out.faces = result.faces; out.lines = result.lines;
         }
-        if (result.stl) out.blobSTL = () => new Blob([result.stl], { type: "model/stl" });
-        if (result.step) out.blobSTEP = () => new Blob([result.step], { type: "application/step" });
+        // Lazy — only actually round-trips to the worker (re-running OCC's STL/
+        // STEP writers against the cached shape) when an export button is clicked.
+        out.blobSTL  = () => exportBlob(id, "stl", "model/stl");
+        out.blobSTEP = () => exportBlob(id, "step", "application/step");
         if (result.warnings && result.warnings.length) {
           out.warnings = result.warnings;
           for (const w of result.warnings) console.error("kernel: " + w);

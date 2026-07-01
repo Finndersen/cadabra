@@ -22,6 +22,35 @@ For MAJOR versions, the **Migration** section is the agent's step-by-step guide.
 
 ---
 
+## 2.2.0 — 2026-07-01 — minor
+
+**Type:** minor
+**Auto-upgrade safe:** yes
+**model.js compatibility:** Fully backward-compatible — `model.js` never calls
+`blobSTL()`/`blobSTEP()` itself (only the runtime's export buttons do), so
+nothing in a kernel-part's `build()` needs to change.
+
+### Changes
+- **kernel.js no longer generates STL/STEP on every solve.** Previously
+  `shape.blobSTL()`/`shape.blobSTEP()` ran inside the worker's `onmessage`
+  handler for *every* rebuild, including ones the user only ever sees as a
+  live-preview slider drag. OCC's STEP writer in particular is expensive
+  (verified via its own verbose transfer-statistics log firing on ordinary
+  drags, not just exports) — this made every kernel rebuild pay for two
+  file-format exports nobody asked for yet.
+- **STL/STEP are now generated on demand.** The worker caches the solved
+  `shape` object (keyed by request id, FIFO-evicted past
+  `SHAPE_CACHE_LIMIT = 16`). `out.blobSTL()`/`out.blobSTEP()` are now async —
+  calling them posts a fresh message to the worker, which regenerates the
+  export from the cached shape. If that shape has since been evicted (many
+  solves since, or the worker restarted on page reload), the call rejects
+  with a message telling the user to nudge a param to rebuild and retry.
+- **`runtime.js`'s `doExport()` is now async** to await these calls, shows an
+  "exporting…" badge while the worker round-trips, and surfaces failures via
+  `alert()` instead of silently doing nothing.
+
+---
+
 ## 2.1.0 — 2026-07-01 — minor
 
 **Type:** minor

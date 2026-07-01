@@ -72,8 +72,12 @@ window.MODEL = {
 
   build(params:Object, ctx:BuildCtx)
     → { faces:Faces, ...published }                          // engine:'direct'
-    → Promise<{ geometry:BufferGeometry, edges:BufferGeometry,
-                volume:number, blobSTL:Blob, blobSTEP:Blob }> // engine:'kernel'
+    → Promise<{ geometry:BufferGeometry, edges:BufferGeometry, volume:number,
+                blobSTL:()=>Promise<Blob>, blobSTEP:()=>Promise<Blob> }>
+      // engine:'kernel'. blobSTL/blobSTEP are lazy — calling one round-trips
+      // to the kernel worker to generate that export on demand (not done on
+      // every solve; see kernel.js). You won't call these yourself — the
+      // runtime wires them into the part's export buttons.
 
   transform(params:Object, ctx:BuildCtx) → { z:number }
 
