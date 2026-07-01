@@ -224,7 +224,7 @@ function baseCost(out,p,ctx){
 
 /* ============================================================ MODEL ========= */
 window.MODEL = {
-  meta: { name:'Crystal sculpture + base', units:'mm', fabricationDefault:'cut-sheet' },
+  meta: { name:'Crystal sculpture + base', units:'mm', fabricationDefault:'cut-sheet', currency:'$' },
   MATERIALS,
   parts: [
     { id:'crystal', name:'Crystal', engine:'direct', fab:'cut-sheet', dependsOn:[],

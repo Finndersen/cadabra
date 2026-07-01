@@ -163,7 +163,7 @@ function partCost(out, params, ctx) {
 
 /* ---- MODEL ---- */
 window.MODEL = {
-  meta: { name: "Example part", units: "mm", fabricationDefault: "printed" },
+  meta: { name: "Example part", units: "mm", fabricationDefault: "printed", currency: "$" },
   MATERIALS,
   parts: [
     {

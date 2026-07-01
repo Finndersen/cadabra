@@ -48,7 +48,8 @@ BuildCtx
 
 ```js
 window.MODEL = {
-  meta: { name: "My Thing", units: "mm", fabricationDefault: "printed" },
+  meta: { name: "My Thing", units: "mm", fabricationDefault: "printed",
+          currency: "$" },   // OPTIONAL — prefixes all cost display; default '$'
   MATERIALS: { pla:{rho:1.24,price:22}, petg:{rho:1.27,price:25},
                abs:{rho:1.04,price:24}, resin:{rho:1.10,price:40} },
   parts: [ /* one PartDef per part; an assembly is an ordered array */ ],
@@ -274,6 +275,13 @@ that part's metrics card AND rolled into the assembly total — compute it once 
 `cost()`, don't also hand-write the figure into `metrics()`. Return
 `null`/`undefined` from `cost()` to skip a given rebuild (e.g. cost depends on a
 param that isn't set yet).
+
+**Currency:** `MATERIALS[key].price` and every `cost()` return value are
+unitless numbers — enter them in whatever currency the project uses. The
+runtime prefixes all cost display with `MODEL.meta.currency` (default `'$'`
+if the field is absent). Set it once during setup based on the interview; to
+change it later just edit that one field in `model.js` and tell the user to
+Reload — no other changes or version bump needed.
 
 ## The window.__app hook (must always survive)
 

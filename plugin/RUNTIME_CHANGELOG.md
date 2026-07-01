@@ -22,6 +22,31 @@ For MAJOR versions, the **Migration** section is the agent's step-by-step guide.
 
 ---
 
+## 2.3.0 — 2026-07-01 — minor
+
+**Type:** minor
+**Auto-upgrade safe:** yes
+**model.js compatibility:** Fully backward-compatible. New optional
+`MODEL.meta.currency` field; absent = `'$'`, identical to current behavior.
+
+### Changes
+- **Configurable cost currency.** All five places `runtime.js` displayed a
+  cost figure (material-picker price label, per-part cost row, assembly BOM
+  tooltip, assembly total, Export tab summary) had `$` hardcoded as a string
+  literal. They now read `MODEL.meta.currency` (default `'$'` if unset, so
+  existing projects render identically without any model.js change).
+- Set once during project setup (`setup-new-project`'s interview now asks
+  about currency), but it's just a plain string field on `meta` — an agent
+  can change it anytime by editing `model.js` and telling the user to Reload;
+  no migration or version bump is needed on the project side.
+- Scope note: this is a single prefix symbol (`'$'`, `'€'`, `'£'`, `'A$'`,
+  `'¥'`, etc.), not full locale formatting (no suffix currencies, no
+  thousands-separator/decimal-comma support). `MATERIALS[key].price` and
+  `cost()` return values are unitless numbers as before — the agent is
+  responsible for entering them in whatever currency `meta.currency` names.
+
+---
+
 ## 2.2.0 — 2026-07-01 — minor
 
 **Type:** minor

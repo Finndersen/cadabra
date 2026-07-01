@@ -90,7 +90,7 @@ function caseCost(out, p, ctx) {
 
 /* ============================================================ MODEL ========= */
 window.MODEL = {
-  meta: { name: "Phone case", units: "mm", fabricationDefault: "printed" },
+  meta: { name: "Phone case", units: "mm", fabricationDefault: "printed", currency: "$" },
   MATERIALS,
   parts: [
     {

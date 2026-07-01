@@ -103,12 +103,17 @@ function boot(libs){
   const SCHEMA = MODEL.parts;
   const MATERIALS = MODEL.MATERIALS || { pla:{rho:1.24,price:22}, petg:{rho:1.27,price:25},
                                          resin:{rho:1.10,price:40}, abs:{rho:1.04,price:24} };
+  // MODEL.meta.currency: OPTIONAL symbol prefix for all cost display (default '$').
+  // Chosen at project setup, but it's just a string field — the agent can change
+  // it anytime by editing model.js, no migration needed.
+  const CURRENCY = (MODEL.meta && MODEL.meta.currency) || '$';
+  function fmtCost(v){ return CURRENCY+Number(v).toFixed(2); }
 
   // part.materials:string[] (keys into MATERIALS) is sugar for a per-part material
   // picker: it's prepended as a synthetic ChoiceParam so it rides the existing
   // param state/save-load/UI machinery for free — no separate global needed.
   function materialLabel(key){ const m=MATERIALS[key]; if(!m) return key;
-    return key.toUpperCase()+' · '+m.rho+' g/cm³ · $'+m.price+'/kg'; }
+    return key.toUpperCase()+' · '+m.rho+' g/cm³ · '+CURRENCY+m.price+'/kg'; }
   function partParamsWithMaterial(part){
     if(!part.materials||!part.materials.length) return part.params;
     return [{ key:'material', label:'Material', type:'choice', group:'Material',
@@ -420,7 +425,7 @@ function boot(libs){
     if(typeof part.cost==='function'){
       const c=part.cost(out,params,ctx);
       if(c!=null){ const o=(typeof c==='object')?c:{value:c}; cost=o.value;
-        rows.push([o.label||'Cost', '$'+o.value.toFixed(2)]); }
+        rows.push([o.label||'Cost', fmtCost(o.value)]); }
     }
     return { rows, cost };
   }
@@ -430,7 +435,7 @@ function boot(libs){
     for(const part of SCHEMA){ const e=partEstimate(part, outs[part.id], state[part.id], ctx);
       const box=document.getElementById('est_'+part.id);
       if(box) box.innerHTML=e.rows.map(r=>`<div class="row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
-      if(e.cost!=null){ totalCost+=e.cost; costRows.push(`${part.name} $${e.cost.toFixed(2)}`); } }
+      if(e.cost!=null){ totalCost+=e.cost; costRows.push(`${part.name} ${fmtCost(e.cost)}`); } }
     let h=0;
     for(const part of SCHEMA){ const out=outs[part.id]; if(!out) continue;
       const dz=part.transform?part.transform(state[part.id],ctx).z:0;
@@ -441,7 +446,7 @@ function boot(libs){
     document.getElementById('aFP').textContent=fpPart?Math.round(outs[fpPart.id].footprint)+' mm':'—';
     const costRow=document.getElementById('aCostRow');
     if(costRow) costRow.hidden=(costRows.length===0);
-    document.getElementById('aCost').textContent='$'+totalCost.toFixed(2);
+    document.getElementById('aCost').textContent=fmtCost(totalCost);
     document.getElementById('aCost').title=costRows.join('  ·  ');
   }
 
@@ -599,7 +604,7 @@ function boot(libs){
         const areaRow=e.rows.find(r=>String(r[0]).toLowerCase().includes('area'));
         const costRow=e.rows.find(r=>String(r[0]).toLowerCase().includes('cost')||String(r[0]).toLowerCase().includes('est'));
         const parts=[totalQty+' panels', areaRow?areaRow[1]:null,
-          costRow?String(costRow[1]):(e.cost!=null?'$'+e.cost.toFixed(2):null)].filter(Boolean);
+          costRow?String(costRow[1]):(e.cost!=null?fmtCost(e.cost):null)].filter(Boolean);
         sumHtml=`<span class="exp-sum">${parts.join(' · ')}</span>`;
       }
       head.innerHTML=`<span class="nm">${part.name}</span><span class="fab">${part.fab}</span><span class="sp"></span>${sumHtml}`;
@@ -837,5 +842,5 @@ function boot(libs){
   rebuild();
 }
 
-window.CADABRA = { boot, version: "2.2.0" };
+window.CADABRA = { boot, version: "2.3.0" };
 })();

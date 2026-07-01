@@ -58,6 +58,11 @@ Interview the user before writing any files. Gather:
    If a part should let the user pick among materials at runtime (e.g. PLA vs
    PETG), note which — this becomes a `materials:[]` field on that part, and is
    per-part (different parts in the same assembly can take different materials).
+   Also settle the **cost currency** (symbol to prefix all cost display with —
+   `MODEL.meta.currency`, e.g. `$`/`€`/`£`/`A$`/`¥`). Not blocking: default to
+   `$` (USD) unless the user states otherwise or the conversation already gives
+   a strong signal (e.g. a non-US locale/region mentioned). It's just a string
+   field on `meta` — trivial for you to change later if it turns out wrong.
 5. **Metrics** — what computed quantities matter to see live per part, beyond
    cost: lengths, clearances, counts, fit checks. Fabrication cost is optional
    per part (only define it where it's actually meaningful) — don't assume every
@@ -196,6 +201,19 @@ edit `model.js` (or, for deep UI rework, the project's own `runtime.js` /
 `index.html` / `theme.css` — all project-owned copies), then user clicks Reload.
 When fabrication choice changes, flip `fab`/`exports`/`engine` and re-price.
 Update PROJECT.md's decision log.
+
+> **Changing a parameter `default:` won't show up on Reload.** The runtime
+> persists the user's slider values in browser `localStorage` and overlays them
+> on top of the model.js defaults on every load (`loadState()` in `runtime.js`),
+> so a plain **Reload** keeps their old values and silently shadows a new
+> `default:` (or a new `min`/`max`/`step`). Whenever you change a default — or
+> want the user to see new default proportions — tell them to click **"Reset
+> all"** in the sidebar, which reinitialises every param to the model.js
+> defaults. Reload alone still applies code/geometry changes. Note that
+> `verify.mjs` and screenshots run in a fresh headless browser with empty
+> `localStorage`, so they always render the model.js defaults — if what you
+> verify looks right but the user says "nothing changed," it's almost always
+> stale persisted state on their side, not a bad build; have them Reset all.
 
 **Export tab** — Design / Export toggle in the sidebar:
 - **cut-sheet / milled**: panel-type grid (2D preview, qty, dims). Click a panel
