@@ -22,6 +22,31 @@ For MAJOR versions, the **Migration** section is the agent's step-by-step guide.
 
 ---
 
+## 2.3.1 — 2026-07-01 — patch
+
+**Type:** patch
+**Auto-upgrade safe:** yes
+**model.js compatibility:** Fully backward-compatible. No schema/API change.
+
+### Changes
+- **Kernel-part sliders now solve on release, not mid-drag.** The 200ms slider
+  debounce (0.4.0) only delays *when* `rebuild()` fires — it doesn't stop two
+  overlapping calls if the drag pauses ≥200ms partway through. Since the
+  kernel worker (`kernel.js`) runs OCC solves synchronously, a stale
+  mid-drag solve fully blocks the worker before the solve for where the user
+  actually released even starts — total latency becomes
+  `stale_solve_time + target_solve_time` instead of just the latter.
+- `makeRange()` now takes an `isKernel` flag (`part.engine==='kernel'`). For
+  kernel parts, the slider thumb and numeric readout still update live on
+  `input`, but the actual `scheduleRebuild()` call moves to `change` — which
+  fires once, only on pointer release / spinner click / Enter, never
+  mid-drag. `direct`-engine parts are unaffected (still rebuild on every
+  `input` tick — their rebuilds are sub-millisecond, so there's no benefit
+  to waiting).
+
+### Migration
+None — behavior-only change, no model.js edits needed.
+
 ## 2.3.0 — 2026-07-01 — minor
 
 **Type:** minor

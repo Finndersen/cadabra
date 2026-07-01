@@ -453,7 +453,14 @@ function boot(libs){
   /* ============================================================ design tab UI == */
   const decimals=step=>{ const s=String(step); return s.includes('.')?s.split('.')[1].length:0; };
   const fmtVal=(v,step)=>Number(v).toFixed(decimals(step));
-  function makeRange(partId,d){
+  // isKernel parts defer the actual solve to the 'change' event (fires once, on
+  // slider release / spinner click / Enter — never mid-drag) instead of 'input'
+  // (fires continuously while dragging). A WASM solve is never real-time anyway,
+  // so there's nothing lost by waiting for the user to commit to a value — and
+  // it means a slow solve for a value the user already dragged past never gets
+  // queued ahead of the one for where they actually stopped. 'input' still fires
+  // for isKernel parts to keep the thumb + numeric readout live during the drag.
+  function makeRange(partId,d,isKernel){
     const row=document.createElement('div'); row.className='prow';
     row.innerHTML=`<label>${d.label} <span class="u">${d.unit||''}</span></label>
       <div class="pin"><input type="range"><input type="number" class="num"></div>`;
@@ -462,9 +469,14 @@ function boot(libs){
     num.step=d.step; if(d.hardMin!=null) num.min=d.hardMin; if(d.hardMax!=null) num.max=d.hardMax;
     const set=v=>{ state[partId][d.key]=v; rng.value=Math.min(d.max,Math.max(d.min,v)); num.value=fmtVal(v,d.step); };
     set(state[partId][d.key]);
-    rng.addEventListener('input',()=>{ set(parseFloat(rng.value)); scheduleRebuild(); });
+    rng.addEventListener('input',()=>{ set(parseFloat(rng.value)); if(!isKernel) scheduleRebuild(); });
     num.addEventListener('input',()=>{ const v=parseFloat(num.value); if(!isNaN(v)){ state[partId][d.key]=v;
-      rng.value=Math.min(d.max,Math.max(d.min,v)); scheduleRebuild(); } });
+      rng.value=Math.min(d.max,Math.max(d.min,v)); if(!isKernel) scheduleRebuild(); } });
+    if(isKernel){
+      rng.addEventListener('change',()=>scheduleRebuild());
+      num.addEventListener('change',()=>scheduleRebuild());
+      num.addEventListener('keydown',e=>{ if(e.key==='Enter') scheduleRebuild(); });
+    }
     return row;
   }
   function scheduleRebuild(){
@@ -500,7 +512,7 @@ function boot(libs){
         if(d.group && d.group!==curGroup){ curGroup=d.group;
           const g=document.createElement('div'); g.className='grp'+(first?' first':''); g.textContent=d.group; body.appendChild(g); }
         first=false;
-        body.appendChild(d.type==='choice'?makeChoice(part.id,d):makeRange(part.id,d));
+        body.appendChild(d.type==='choice'?makeChoice(part.id,d):makeRange(part.id,d,part.engine==='kernel'));
       }
       // render style
       const sr=document.createElement('div'); sr.className='selrow';
@@ -842,5 +854,5 @@ function boot(libs){
   rebuild();
 }
 
-window.CADABRA = { boot, version: "2.3.0" };
+window.CADABRA = { boot, version: "2.3.1" };
 })();
