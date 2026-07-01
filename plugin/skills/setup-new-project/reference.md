@@ -282,13 +282,18 @@ window.__app = {
   render(), screenshot(),   // screenshot() → PNG dataURL (preserveDrawingBuffer)
   ready,                    // true once booted
   solving, solveCount,      // async-build state: wait for solveCount>0 && !solving
+  lastError,                // string | null — set when the last rebuild threw,
+                             // cleared on the next successful one. A failed
+                             // rebuild leaves the SCENE showing the last
+                             // successful build, so screenshot() alone can't
+                             // tell you the render is stale — lastError can.
 };
 ```
 
 For kernel parts (async builds), a headless driver should wait for
 `__app.solveCount > 0 && !__app.solving` before screenshotting — the geometry
-lands a few seconds after `ready` while replicad + WASM boot. `verify.mjs` and
-`screenshot.mjs` already do this.
+lands a few seconds after `ready` while replicad + WASM boot. `verify.mjs`
+already does this.
 
 **Debugging a failed kernel build:** OCC operations (fillet, boolean fuse/cut)
 fail with a terse error code (e.g. `Error: 10019168`) logged inside the worker
@@ -300,40 +305,42 @@ tiny edges) — fillet each input shape individually before the boolean instead
 (see `examples/` or a project that hit this, e.g. a kernel-tier swept/extruded
 part with two pieces fused together).
 
+STL/STEP export or volume-measurement failures on an otherwise-valid kernel
+shape don't throw — they land as `console.error('kernel: ...')` on the main
+thread and as `out.warnings` (string array) on that part's `build()` output,
+so a broken export button doesn't fail silently.
+
 Use `report()` for measurements you can't eyeball (did the boolean remove
 material? does the cavity fit? largest panel/segment?). Use `screenshot()` (via
 the CLI script) only when you actually need to look.
 
 ## CLI scripts reference
 
-Full flag lists for the two Playwright-driven scripts (both run over `file://`,
-no server). `screenshot.mjs --help`/`-h` prints its own usage; `verify.mjs` has
-no `--help` flag — run it with no args to see its usage line instead.
+`verify.mjs` (Playwright-driven, runs over `file://`, no server) always runs
+its pass/fail gates — console errors, `window.__app` hook present,
+`lastError` clean, `screenshot()` valid — and additionally captures a
+screenshot/state dump when you pass the relevant flags. Run with no args (or
+`--help`) to see its usage line.
 
-**`verify.mjs`** — pass/fail smoke-test gates:
 ```
 node verify.mjs <path/to/project/index.html>
-  --screenshot-out <file>   also save the screenshot gate's PNG to disk
-                            (omit to just assert screenshot() returns a valid PNG)
-  --json                    dump the full window.__app.report() as JSON
-  --verbose                 stream every console/pageerror message live as the
-                            page loads (use when a gate fails with a bare
-                            timeout — see "Debugging a failed kernel build" above)
-```
-
-**`screenshot.mjs`** — on-demand capture for a specific view:
-```
-node screenshot.mjs --html <path/to/index.html>
-  --out <file>          output PNG (default shot.png)
-  --set '<id>:{...}'    apply window.__app.setParams(id, obj) — repeatable, one
-                        per part
-  --view <preset>       iso | front | back | left | right | top | bottom
-  --config <file>       load a saved config JSON before rendering
-  --dump <file>         write getState() + report() JSON to this file
-  --part <id>           hide all other parts; camera re-fits to this part only
-  --width <n>           viewport width (default 800)
-  --height <n>          viewport height (default 600)
-  --wait <ms>           extra settle time after build before capturing (default 700)
+  --out <file>          save the screenshot gate's PNG to disk (omit to just
+                        assert screenshot() returns a valid PNG, no save)
+  --set '<id>:{...}'    apply window.__app.setParams(id, obj) — repeatable,
+                        one per part
+  --view <preset>        iso | front | back | left | right | top | bottom
+  --config <file>        load a saved config JSON before rendering
+  --dump <file>          write getState() + report() JSON to this file
+  --part <id>            hide all other parts; camera re-fits to this part only
+  --width <n>            viewport width (default 1280)
+  --height <n>           viewport height (default 900)
+  --wait <ms>            extra settle time after build before capturing (default 700)
+  --json                 dump the full window.__app.report() as JSON
+  --verbose              stream every console/pageerror message live as the
+                        page loads (use when a gate fails with a bare
+                        timeout — see "Debugging a failed kernel build" above)
+  --no-fail              always exit 0 (still runs & prints every gate) — use
+                        to capture a screenshot of a known-broken state
 ```
 
 ## Deeper customisation

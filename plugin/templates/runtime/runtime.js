@@ -383,7 +383,12 @@ function boot(libs){
         if(part.engine==='kernel') _kernelOuts[part.id]=out;
       }
     }catch(err){
-      console.error('build failed:',err); setBadge('build error — see console'); return;
+      console.error('build failed:',err); setBadge('build error — see console');
+      // Scene keeps whatever rendered on the last successful build (lastOuts isn't
+      // reassigned below), so screenshot() would otherwise still return a "valid"
+      // but stale PNG. lastError lets a headless driver detect that.
+      if(window.__app){ window.__app.solving=false; window.__app.lastError=String(err&&err.message||err); }
+      return;
     }
     if(myseq!==_rebuildSeq) return;
     clearHighlight();
@@ -402,7 +407,7 @@ function boot(libs){
     setBadge();
     if(!_didFirstFit){ _didFirstFit=true; fitCamera(); }
     _solveCount++;
-    if(window.__app){ window.__app.solveCount=_solveCount; window.__app.solving=false; }
+    if(window.__app){ window.__app.solveCount=_solveCount; window.__app.solving=false; window.__app.lastError=null; }
   }
   function setBadge(txt){ const b=document.getElementById('badge'); if(b) b.textContent=txt||(MODEL.meta&&MODEL.meta.name?MODEL.meta.name:'ready'); }
   // metrics() is required (arbitrary computed quantities for the part's card).
@@ -804,6 +809,7 @@ function boot(libs){
     ready:true,
     solving:false,
     solveCount:0,
+    lastError:null,
   };
 
   /* ============================================================ run =========== */
@@ -818,5 +824,5 @@ function boot(libs){
   rebuild();
 }
 
-window.CADABRA = { boot, version: "2.0.0" };
+window.CADABRA = { boot, version: "2.1.0" };
 })();

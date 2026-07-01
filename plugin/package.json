@@ -6,12 +6,10 @@
   "private": true,
   "bin": {
     "cadabra-scaffold": "./scripts/scaffold_project.mjs",
-    "cadabra-shot": "./scripts/screenshot.mjs",
     "cadabra-verify": "./scripts/verify.mjs"
   },
   "scripts": {
     "scaffold": "node scripts/scaffold_project.mjs",
-    "shot": "node scripts/screenshot.mjs",
     "verify": "node scripts/verify.mjs"
   },
   "dependencies": {

@@ -172,18 +172,20 @@ be self-contained: only its `(replicad, p)` args, never `model.js` scope.
 You usually understand the design from the code. When you need to look —
 a specific visual concern, or the user asks — capture a screenshot:
 
-> **Sandbox:** `screenshot.mjs` and `verify.mjs` launch a headless browser via
-> Playwright. If either command fails with a permission or operation-not-permitted
-> error, re-run it with the Claude sandbox disabled.
+> **Sandbox:** `verify.mjs` launches a headless browser via Playwright. If it
+> fails with a permission or operation-not-permitted error, re-run it with the
+> Claude sandbox disabled.
 
 ```
-node ${CLAUDE_PLUGIN_ROOT}/scripts/screenshot.mjs --html <project>/index.html \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/verify.mjs <project>/index.html \
      --out /tmp/cadabra_shot.png [--view iso|front|top|...] [--set 'partId:{"H":1400}']
 ```
 
-Then `Read /tmp/cadabra_shot.png` to view the image. `screenshot.mjs` also takes
-`--config`, `--dump`, `--part`, `--width`/`--height`, and `--wait` — see
-[reference.md](reference.md#cli-scripts-reference) for the full flag list.
+Then `Read /tmp/cadabra_shot.png` to view the image. This also runs the same
+gates as [Verification](#verification-every-project-must-pass) below, so a
+self-review screenshot doubles as a check that nothing broke. `verify.mjs`
+also takes `--config`, `--dump`, `--part`, `--width`/`--height`, and `--wait`
+— see [reference.md](reference.md#cli-scripts-reference) for the full flag list.
 
 Review against the checklist below, fix, and re-render before presenting.
 
@@ -252,8 +254,8 @@ error (e.g. an OCC fillet/boolean failure) logs as `console.error` inside the
 worker and otherwise only surfaces after the gate's timeout, not before it:
 `node ${CLAUDE_PLUGIN_ROOT}/scripts/verify.mjs --verbose <project>/index.html`
 
-`verify.mjs` also takes `--screenshot-out <file>` (save the screenshot gate's
-PNG — omitted by default) and `--json` (dump the full `report()`) — see
+`verify.mjs` also takes `--out <file>` (save the screenshot gate's PNG —
+omitted by default) and `--json` (dump the full `report()`) — see
 [reference.md](reference.md#cli-scripts-reference) for the full flag list.
 
 ---

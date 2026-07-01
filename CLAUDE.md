@@ -32,8 +32,7 @@ plugin/
   scripts/
     scaffold_project.mjs  — stamps out a new project (also writes project CLAUDE.md)
     upgrade_runtime.mjs   — upgrades an existing project's runtime files
-    screenshot.mjs         — headless screenshot for agent self-review
-    verify.mjs             — smoke-test a project over file://
+    verify.mjs             — smoke-test gates + on-demand screenshot, over file://
   RUNTIME_CHANGELOG.md    — version history (READ THIS before modifying runtime files)
 ```
 

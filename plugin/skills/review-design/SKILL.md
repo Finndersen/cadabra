@@ -34,24 +34,27 @@ browser localStorage, so it cannot see their current slider values automatically
 
 Then run with `--config <path>` so the headless browser loads those exact values:
 
-> **Sandbox:** `screenshot.mjs` launches a headless browser via Playwright. If
-> it fails with a permission or operation-not-permitted error, re-run it with
+> **Sandbox:** `verify.mjs` launches a headless browser via Playwright. If it
+> fails with a permission or operation-not-permitted error, re-run it with
 > the Claude sandbox disabled.
 
 ```
-node ${CLAUDE_PLUGIN_ROOT}/scripts/screenshot.mjs \
-  --html ./index.html \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/verify.mjs \
+  ./index.html \
   --config <path/to/saved-config.json> \
   --out /tmp/cadabra_shot.png \
   --dump /tmp/cadabra_review.json \
   --view iso
 ```
 
-Then `Read /tmp/cadabra_shot.png` to view the image.
+Then `Read /tmp/cadabra_shot.png` to view the image. This also runs `verify.mjs`'s
+usual pass/fail gates against the user's actual config, including the
+`lastError` check — a config that no longer builds cleanly under the current
+model.js is itself a finding worth reporting.
 
 If the user has not configured anything (or wants to review defaults), omit
 `--config` and the script will use the model's default parameter values.
-`screenshot.mjs` also takes `--set`, `--part`, `--width`/`--height`, and
+`verify.mjs` also takes `--set`, `--part`, `--width`/`--height`, and
 `--wait` — see
 `${CLAUDE_PLUGIN_ROOT}/skills/setup-new-project/reference.md#cli-scripts-reference`
 for the full flag list.

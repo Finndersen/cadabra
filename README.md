@@ -128,12 +128,12 @@ node scripts/scaffold_project.mjs --dir /tmp/phone --name "Phone" --fab printed
 cp examples/phone_case/model.js /tmp/phone/model.js
 node scripts/verify.mjs /tmp/phone/index.html
 
-# scaffold + capture a screenshot:
+# scaffold + capture a screenshot (gates still run; --out saves the PNG):
 node scripts/scaffold_project.mjs --dir /tmp/demo --name "Demo" --fab printed
-node scripts/screenshot.mjs --html /tmp/demo/index.html --out shot.png --view iso
+node scripts/verify.mjs /tmp/demo/index.html --out shot.png --view iso
 ```
 
-`verify.mjs` and `screenshot.mjs` take several more flags than shown above — see
+`verify.mjs` takes several more flags than shown above — see
 [`skills/setup-new-project/reference.md`](plugin/skills/setup-new-project/reference.md#cli-scripts-reference)
 for the full list.
 

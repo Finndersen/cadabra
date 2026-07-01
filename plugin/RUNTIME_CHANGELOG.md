@@ -22,6 +22,36 @@ For MAJOR versions, the **Migration** section is the agent's step-by-step guide.
 
 ---
 
+## 2.1.0 — 2026-07-01 — minor
+
+**Type:** minor
+**Auto-upgrade safe:** yes
+**model.js compatibility:** Fully backward-compatible.
+
+### Changes
+- **Fixed:** `window.__app.solving` could get stuck `true` forever after a
+  `build()` threw on any rebuild past the first (the error catch returned
+  before the line that resets it). A headless driver waiting on
+  `!__app.solving` after a `setParams`/`loadConfig` call would then just time
+  out silently instead of seeing the failure.
+- **New `window.__app.lastError`** (string | null). Set to the error message
+  when a rebuild's `try` block throws, cleared to `null` on the next
+  successful rebuild. Needed because a failed rebuild leaves the *scene*
+  showing whatever rendered on the last successful build — `screenshot()`
+  still returns a "valid" PNG, just a stale one that doesn't reflect the
+  params that were just applied. `lastError` is how a driver tells the
+  difference between "this is the current model" and "this is stale because
+  the last build attempt errored." `verify.mjs` now gates on it.
+- **kernel.js: STL/STEP export and volume-measurement failures are no longer
+  silently swallowed.** They previously vanished into an empty `catch(_){}`
+  inside the worker. Now collected as `warnings` on the worker result,
+  logged via `console.error` on the main thread (not inside the worker,
+  where console output isn't reliably visible to a headless driver watching
+  the page), and attached to the kernel part's `build()` output as
+  `out.warnings` for inspection in `model.js` if useful.
+
+---
+
 ## 2.0.0 — 2026-06-30 — MAJOR
 
 **Type:** MAJOR

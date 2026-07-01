@@ -104,15 +104,25 @@ self.onmessage = async (e) => {
     const ed = shape.meshEdges();
     const faces = { vertices: m.vertices, normals: m.normals, triangles: m.triangles };
     const lines = { lines: ed.lines };
+    // Each of these can legitimately fail on a valid shape (e.g. a non-manifold
+    // edge case blobSTEP chokes on) without the overall solve being wrong — don't
+    // let one swallow the whole result, but don't swallow the failure silently
+    // either. warnings rides back to the main thread, which is where they get
+    // logged (console.* inside a dedicated worker isn't reliably visible to a
+    // headless driver watching the page's console).
+    const warnings = [];
     let volume = null;
-    try { volume = replicad.measureVolume ? replicad.measureVolume(shape) : null; } catch (_) {}
+    try { volume = replicad.measureVolume ? replicad.measureVolume(shape) : null; }
+    catch (e) { warnings.push('measureVolume failed: ' + ((e && e.message) || e)); }
     let stl = null, step = null;
-    try { stl = await shape.blobSTL().arrayBuffer(); } catch (_) {}
-    try { step = await shape.blobSTEP().arrayBuffer(); } catch (_) {}
+    try { stl = await shape.blobSTL().arrayBuffer(); }
+    catch (e) { warnings.push('blobSTL failed (STL export will be unavailable): ' + ((e && e.message) || e)); }
+    try { step = await shape.blobSTEP().arrayBuffer(); }
+    catch (e) { warnings.push('blobSTEP failed (STEP export will be unavailable): ' + ((e && e.message) || e)); }
     const transfer = [];
     if (stl) transfer.push(stl);
     if (step) transfer.push(step);
-    self.postMessage({ id, ok: true, result: { faces, lines, volume, stl, step } }, transfer);
+    self.postMessage({ id, ok: true, result: { faces, lines, volume, stl, step, warnings } }, transfer);
   } catch (err) {
     self.postMessage({ id, ok: false, error: String((err && (err.stack || err)) || err) });
   }
@@ -178,6 +188,10 @@ async function ready() {
         }
         if (result.stl) out.blobSTL = () => new Blob([result.stl], { type: "model/stl" });
         if (result.step) out.blobSTEP = () => new Blob([result.step], { type: "application/step" });
+        if (result.warnings && result.warnings.length) {
+          out.warnings = result.warnings;
+          for (const w of result.warnings) console.error("kernel: " + w);
+        }
         return out;
       },
     };

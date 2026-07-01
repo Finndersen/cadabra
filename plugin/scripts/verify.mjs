@@ -1,95 +1,193 @@
 #!/usr/bin/env node
 /* ============================================================================
-   verify.mjs — Cadabra verification gates, loaded over file:// (NO server).
-   Confirms the runtime works straight from disk:
-     1. renders WITHOUT console errors
+   verify.mjs — Cadabra verification + screenshot driver, loaded over file://
+   (NO server — classic-script + globals + CDN libs, so it works straight off
+   disk, same as opening index.html by hand).
+
+   Always runs the pass/fail gates:
+     1. renders without console errors
      2. window.__app hook present (with the required methods)
-     3. confirms screenshot() returns a valid PNG (not saved to disk unless
-        --screenshot-out is given — use screenshot.mjs to actually capture a view)
-     4. prints each part's estimate rows (informational — no pass/fail)
+     3. the last build completed without error (window.__app.lastError)
+     4. screenshot() returns a valid PNG
+   ...then prints each part's metrics rows (informational — no pass/fail).
+
+   Screenshot capture, param overrides, camera views, and config loading are
+   additive — opt in with flags. The gates run the same way either way, so
+   this one script covers both "does it still work" and "let me look at it."
 
    Usage:
      node verify.mjs <path/to/project/index.html>
-     node verify.mjs --screenshot-out shot.png path/to/index.html   # also save the PNG
-     node verify.mjs --json path/to/index.html   # dump full window.__app.report()
-     node verify.mjs --verbose path/to/index.html
-       Streams every console/pageerror message live as the page loads, instead
-       of only surfacing console.error text after a gate times out. Use this
-       when a gate fails with a bare "Timeout exceeded" — e.g. a kernel build
-       error logs as a plain console.error inside the worker, which the
-       ready/solve gates don't fail fast on; --verbose shows it immediately.
+     node verify.mjs <path/to/index.html> --out shot.png --view iso
+     node verify.mjs <path/to/index.html> --set 'crystal:{"H":1500,"n":8}'
+     node verify.mjs <path/to/index.html> --config saved.json --dump state.json
+     node verify.mjs <path/to/index.html> --json      # full report() to stdout
+     node verify.mjs <path/to/index.html> --verbose    # stream console live
+     node verify.mjs <path/to/index.html> --no-fail --out shot.png
+        # capture a screenshot of a known-broken state without a nonzero exit
+
+   Flags:
+     --out <file>        save the screenshot PNG here (omit = gate-only, no save)
+     --set '<id>:{...}'  apply window.__app.setParams(id, obj) — repeatable,
+                         one per part
+     --view <preset>     iso | front | back | left | right | top | bottom
+     --config <file>     load a saved config JSON before rendering
+     --part <id>         hide all other parts; camera re-fits to this part only
+     --width <n>          viewport width (default 1280)
+     --height <n>         viewport height (default 900)
+     --wait <ms>          extra settle ms after build before capturing (default 700)
+     --dump <file>        write getState() + report() JSON to this file
+     --json                print the full window.__app.report() to stdout
+                           instead of the per-part metrics summary
+     --verbose             stream every console/pageerror message live as the
+                           page loads. Use this when a gate fails with a bare
+                           timeout instead of a clear error — e.g. a kernel
+                           build error (OCC fillet/boolean failure) logs as
+                           console.error inside the worker and otherwise only
+                           surfaces after the gate's timeout, not before it.
+     --no-fail             always exit 0 — still runs every gate and prints
+                           results, just don't fail the process. Use this to
+                           screenshot a known-broken state to look at it.
    ============================================================================ */
 import { chromium } from "playwright";
-import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { writeFileSync, readFileSync } from "node:fs";
 
-const args = process.argv.slice(2);
-let targetArg = null, screenshotOutArg = null, jsonArg = false, verboseArg = false;
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--screenshot-out") screenshotOutArg = args[++i];
-  else if (args[i] === "--json") jsonArg = true;
-  else if (args[i] === "--verbose") verboseArg = true;
-  else if (!targetArg) targetArg = args[i];
+function parseArgs(argv) {
+  const a = {
+    sets: [], width: 1280, height: 900, view: null, config: null, wait: 700,
+    out: null, dump: null, part: null, json: false, verbose: false, noFail: false,
+  };
+  for (let i = 2; i < argv.length; i++) {
+    const k = argv[i];
+    const next = () => argv[++i];
+    if (k === "--out") a.out = next();
+    else if (k === "--set") a.sets.push(next());
+    else if (k === "--view") a.view = next();
+    else if (k === "--config") a.config = next();
+    else if (k === "--width") a.width = parseInt(next(), 10);
+    else if (k === "--height") a.height = parseInt(next(), 10);
+    else if (k === "--wait") a.wait = parseInt(next(), 10);
+    else if (k === "--dump") a.dump = next();
+    else if (k === "--part") a.part = next();
+    else if (k === "--json") a.json = true;
+    else if (k === "--verbose") a.verbose = true;
+    else if (k === "--no-fail") a.noFail = true;
+    else if (k === "--help" || k === "-h") a.help = true;
+    else if (!a.html) a.html = k;
+  }
+  return a;
 }
 
-if (!targetArg) {
-  console.error("Usage: node verify.mjs <path/to/project/index.html> [--screenshot-out shot.png] [--json] [--verbose]");
-  process.exit(2);
-}
+const HELP = `cadabra verify — gate a project index.html and optionally capture a PNG (file://, no server)
 
-const htmlPath = resolve(targetArg);
-const url = pathToFileURL(htmlPath).href;
-const outPath = screenshotOutArg ? resolve(screenshotOutArg) : null;
+  node verify.mjs <path/to/project/index.html> [options]
+
+  --out <file>         save the screenshot PNG here (omit = gate-only, no save)
+  --set '<id>:{...}'   apply window.__app.setParams(id, obj) — repeatable
+  --view <preset>      iso | front | back | left | right | top | bottom
+  --config <file>      load a saved config JSON before rendering
+  --part <id>          hide all other parts; camera re-fits to this part only
+  --width <n>          viewport width (default 1280)
+  --height <n>         viewport height (default 900)
+  --wait <ms>          extra settle ms after build (default 700)
+  --dump <file>        write getState() + report() JSON to this file
+  --json               print the full report() to stdout
+  --verbose            stream every console/pageerror message live
+  --no-fail            always exit 0 (still runs & prints every gate)`;
 
 const REQUIRED_HOOK_METHODS = ["setParams", "getState", "loadConfig", "setVisible", "setStyle", "render", "screenshot"];
 
-function ok(label)          { console.log("  PASS  " + label); }
-function bad(label, detail) { console.log("  FAIL  " + label + (detail ? " — " + detail : "")); failures++; }
-let failures = 0;
+function printGate(g) {
+  console.log("  " + (g.pass ? "PASS" : "FAIL") + "  " + g.label + (!g.pass && g.detail ? " — " + g.detail : ""));
+}
 
-const browser = await chromium.launch();
-const consoleErrors = [];
-try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  page.on("console", (m) => {
-    if (verboseArg) console.log("  [console." + m.type() + "] " + m.text());
-    if (m.type() === "error") consoleErrors.push(m.text());
-  });
-  page.on("pageerror", (e) => {
-    if (verboseArg) console.log("  [pageerror] " + e.message);
-    consoleErrors.push("pageerror: " + e.message);
-  });
+export async function run(opts) {
+  const url = pathToFileURL(resolve(opts.html)).href;
+  const browser = await chromium.launch();
+  const consoleErrors = [];
+  const gates = [];
+  let state = null, report = null, outPath = null;
+  try {
+    const page = await browser.newPage({ viewport: { width: opts.width, height: opts.height } });
+    page.on("console", (m) => {
+      if (opts.verbose) console.log("  [console." + m.type() + "] " + m.text());
+      if (m.type() === "error") consoleErrors.push(m.text());
+    });
+    page.on("pageerror", (e) => {
+      if (opts.verbose) console.log("  [pageerror] " + e.message);
+      consoleErrors.push("pageerror: " + e.message);
+    });
 
-  console.log("Verifying " + htmlPath + "\n  (" + url + ")\n");
-  await page.goto(url, { waitUntil: "load" });
-  await page.waitForFunction(() => window.__app && window.__app.ready === true, { timeout: 30000 });
-  await page.waitForFunction(() => window.__app && window.__app.solveCount > 0 && !window.__app.solving, { timeout: 60000 });
+    console.log("Verifying " + opts.html + "\n  (" + url + ")\n");
+    await page.goto(url, { waitUntil: "load" });
+    await page.waitForFunction(() => window.__app && window.__app.ready === true, { timeout: 30000 });
+    await page.waitForFunction(() => window.__app && window.__app.solveCount > 0 && !window.__app.solving, { timeout: 60000 });
 
-  // gate 1: no console errors
-  if (consoleErrors.length === 0) ok("renders without console errors");
-  else bad("renders without console errors", consoleErrors.join(" | "));
+    if (opts.config) {
+      const cfg = JSON.parse(readFileSync(resolve(opts.config), "utf8"));
+      await page.evaluate((c) => window.__app.loadConfig(c), cfg);
+    }
+    for (const s of opts.sets) {
+      const i = s.indexOf(":");
+      const partId = s.slice(0, i);
+      const obj = JSON.parse(s.slice(i + 1));
+      await page.evaluate(([id, o]) => window.__app.setParams(id, o), [partId, obj]);
+    }
+    if (opts.view) await page.evaluate((v) => window.__app.setView && window.__app.setView(v), opts.view);
+    // setParams/loadConfig trigger an async rebuild for kernel parts — let it settle.
+    await page.waitForFunction(() => window.__app && !window.__app.solving, { timeout: 60000 }).catch(() => {});
 
-  // gate 2: hook present + methods
-  const missing = await page.evaluate((req) => {
-    if (!window.__app) return ["__app missing entirely"];
-    return req.filter((m) => typeof window.__app[m] !== "function");
-  }, REQUIRED_HOOK_METHODS);
-  if (missing.length === 0) ok("window.__app hook present with all required methods");
-  else bad("window.__app hook", "missing: " + missing.join(", "));
+    if (opts.part) {
+      const allParts = await page.evaluate(() => window.__app.parts());
+      for (const p of allParts) {
+        if (p.id !== opts.part) await page.evaluate((id) => window.__app.setVisible(id, false), p.id);
+      }
+    }
+    await page.waitForTimeout(opts.wait);   // let the build + camera animation settle
 
-  // gate 3: screenshot
-  const dataUrl = await page.evaluate(() => window.__app.screenshot());
-  if (dataUrl && dataUrl.startsWith("data:image/png")) {
-    if (outPath) { writeFileSync(outPath, Buffer.from(dataUrl.split(",")[1], "base64")); ok("screenshot valid → saved to " + outPath); }
-    else ok("screenshot() returns a valid PNG");
-  } else bad("screenshot");
+    // gate 1: no console errors
+    gates.push({ label: "renders without console errors", pass: consoleErrors.length === 0, detail: consoleErrors.join(" | ") });
 
-  // gate 4 (informational): report data
-  const report = await page.evaluate(() => window.__app.report());
-  if (jsonArg) {
+    // gate 2: hook present + methods
+    const missing = await page.evaluate((req) => {
+      if (!window.__app) return ["__app missing entirely"];
+      return req.filter((m) => typeof window.__app[m] !== "function");
+    }, REQUIRED_HOOK_METHODS);
+    gates.push({ label: "window.__app hook present with all required methods", pass: missing.length === 0, detail: "missing: " + missing.join(", ") });
+
+    // gate 3: last build completed without error. A rebuild that throws (e.g. after
+    // --set/--config above) leaves the scene showing whatever rendered on the last
+    // successful build — screenshot() below would otherwise still return a "valid"
+    // PNG that doesn't reflect the params just applied. lastError catches that.
+    const lastError = await page.evaluate(() => window.__app && window.__app.lastError);
+    gates.push({ label: "last build completed without error", pass: !lastError, detail: lastError });
+
+    // gate 4: screenshot
+    const dataUrl = await page.evaluate(() => window.__app.screenshot());
+    const shotOk = !!(dataUrl && dataUrl.startsWith("data:image/png"));
+    if (shotOk && opts.out) {
+      outPath = resolve(opts.out);
+      writeFileSync(outPath, Buffer.from(dataUrl.split(",")[1], "base64"));
+    }
+    gates.push({ label: shotOk && outPath ? "screenshot valid → saved to " + outPath : "screenshot() returns a valid PNG", pass: shotOk });
+
+    report = await page.evaluate(() => window.__app.report());
+    if (opts.dump) {
+      state = await page.evaluate(() => window.__app.getState());
+      writeFileSync(resolve(opts.dump), JSON.stringify({ state, report }, null, 2));
+    }
+  } catch (e) {
+    gates.push({ label: "harness", pass: false, detail: e.message });
+  } finally {
+    await browser.close();
+  }
+
+  for (const g of gates) printGate(g);
+
+  if (opts.json) {
     console.log("\n" + JSON.stringify(report, null, 2));
-  } else {
+  } else if (report) {
     console.log("");
     for (const id in report.parts) {
       const part = report.parts[id];
@@ -98,11 +196,19 @@ try {
     }
   }
 
-} catch (e) {
-  bad("harness", e.message);
-} finally {
-  await browser.close();
+  const failures = gates.filter((g) => !g.pass).length;
+  console.log("\n" + (failures === 0 ? "ALL GATES PASSED" : failures + " GATE(S) FAILED"));
+  return { failures, outPath, consoleErrors, report, state };
 }
 
-console.log("\n" + (failures === 0 ? "ALL GATES PASSED" : failures + " GATE(S) FAILED"));
-process.exit(failures === 0 ? 0 : 1);
+// CLI entry
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const a = parseArgs(process.argv);
+  if (a.help || !a.html) { console.log(HELP); process.exit(a.help ? 0 : 1); }
+  run(a)
+    .then((r) => {
+      if (a.dump) console.log("wrote " + resolve(a.dump));
+      process.exit((a.noFail || r.failures === 0) ? 0 : 1);
+    })
+    .catch((e) => { console.error("FAILED:", e.message); process.exit(a.noFail ? 0 : 1); });
+}
