@@ -129,8 +129,21 @@ project by editing files and using the agent hook and scripts below.
 
 ## Making changes
 
-- **Geometry / parameters** — edit \`model.js\`, then tell the user to click
+- **Geometry / code** — edit \`model.js\`, then tell the user to click
   **Reload** in the browser to apply.
+- **Parameter defaults (or a param's min/max/step)** — editing a \`default:\` in
+  \`model.js\` is **NOT enough for the user to see it**. The runtime persists the
+  user's slider values in browser \`localStorage\` (key \`cadabra_<name>_v1\`) and,
+  on every load, overlays that saved state on top of the model.js defaults
+  (\`loadState()\` in \`runtime/runtime.js\`) — so a plain **Reload** keeps their old
+  values and silently shadows your new defaults. Whenever you change a default
+  (or want the user to see new default proportions), explicitly tell them to
+  click **"Reset all"** in the sidebar — that reinitialises every param to the
+  model.js defaults. (Reload alone applies code/geometry changes but not new
+  defaults.) \`verify.mjs\`/screenshots run in a fresh headless browser with empty
+  \`localStorage\`, so they always render the model.js defaults; a mismatch
+  between what you verify and what the user sees almost always means stale
+  persisted state on their side, not a bad build.
 - **Fabrication format** — update \`fab\`, \`exports\`, \`engine\` in \`model.js\`;
   note the decision in \`PROJECT.md\`.
 - **Dimensional inspection** — use the agent hook in the browser console:
